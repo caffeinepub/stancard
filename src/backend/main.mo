@@ -1168,6 +1168,31 @@ persistent actor {
 
   public type MoveResult = { #ok : Text; #err : Text; };
 
+  public type TrackingEntry = {
+    status : Text;
+    timestamp : Int;
+  };
+
+  public type ShipmentTracking = {
+    trackingCode : Text;
+    requestId : Text;
+    packageId : Text;
+    entries : [TrackingEntry];
+    currentStatus : Text;
+  };
+
+  public type AcceptedDeliveryWithTracking = {
+    requestId : Text;
+    packageId : Text;
+    senderPrincipal : Principal;
+    riderPrincipal : Principal;
+    routeId : Text;
+    status : Text;
+    createdAt : Int;
+    trackingCode : Text;
+    trackingEntries : [TrackingEntry];
+  };
+
   // Persistent state
   var riderRoutes : [(Principal, [RiderRoute])] = [];
   var packages : [(Principal, [Package])] = [];
@@ -1176,7 +1201,24 @@ persistent actor {
   var packageCounter : Nat = 0;
   var requestCounter : Nat = 0;
 
+  // ─── Tracking State ──────────────────────────────────────────────────────
+  var shipmentTrackings : [ShipmentTracking] = [];
+  var trackingCounter : Nat = 0;
+
   // Helpers
+  // Zero-pad a Nat to 8 digits for tracking codes
+  func zeroPad8(n : Nat) : Text {
+    let s = Nat.toText(n);
+    let len = s.size();
+    if (len >= 8) { s }
+    else {
+      var pad = "";
+      var i = len;
+      while (i < 8) { pad := pad # "0"; i += 1 };
+      pad # s
+    }
+  };
+
   func getRouteMap() : HashMap.HashMap<Principal, [RiderRoute]> {
     HashMap.fromIter<Principal, [RiderRoute]>(
       riderRoutes.vals(), 16, Principal.equal, Principal.hash
@@ -1450,6 +1492,21 @@ persistent actor {
             { requestId = r.requestId; packageId = r.packageId; senderPrincipal = r.senderPrincipal; riderPrincipal = r.riderPrincipal; routeId = r.routeId; status = newStatus; createdAt = r.createdAt }
           } else r
         });
+        // Generate tracking code on accept
+        if (accept) {
+          trackingCounter += 1;
+          let padded = zeroPad8(trackingCounter);
+          let code = "MOVE-" # padded;
+          let entry : TrackingEntry = { status = "Accepted"; timestamp = Time.now() };
+          let tracking : ShipmentTracking = {
+            trackingCode = code;
+            requestId;
+            packageId = req.packageId;
+            entries = [entry];
+            currentStatus = "Accepted";
+          };
+          shipmentTrackings := Array.append(shipmentTrackings, [tracking]);
+        };
         #ok("Request " # newStatus # ".")
       };
     }
@@ -1460,11 +1517,194 @@ persistent actor {
     Array.filter(deliveryRequests, func(r) { Principal.equal(r.senderPrincipal, msg.caller) })
   };
 
-  // Get rider's accepted deliveries
+  // Get rider's accepted deliveries (legacy, returns only Accepted status)
   public query (msg) func getAcceptedDeliveries() : async [DeliveryRequest] {
     Array.filter(deliveryRequests, func(r) {
       Principal.equal(r.riderPrincipal, msg.caller) and r.status == "Accepted"
     })
+  };
+
+  // Get rider's accepted deliveries enriched with tracking info
+  public query (msg) func getAcceptedDeliveriesWithTracking() : async [AcceptedDeliveryWithTracking] {
+    let active = Array.filter(deliveryRequests, func(r) {
+      Principal.equal(r.riderPrincipal, msg.caller) and
+      (r.status == "Accepted" or r.status == "In Transit" or r.status == "Delivered")
+    });
+    Array.map(active, func(r) {
+      let trackOpt = Array.find(shipmentTrackings, func(t) { t.requestId == r.requestId });
+      let (code, entries) = switch (trackOpt) {
+        case (?t) (t.trackingCode, t.entries);
+        case null ("", []);
+      };
+      {
+        requestId = r.requestId;
+        packageId = r.packageId;
+        senderPrincipal = r.senderPrincipal;
+        riderPrincipal = r.riderPrincipal;
+        routeId = r.routeId;
+        status = r.status;
+        createdAt = r.createdAt;
+        trackingCode = code;
+        trackingEntries = entries;
+      }
+    })
+  };
+
+  // Update shipment status (rider only, linear progression)
+  public shared (msg) func updateShipmentStatus(requestId : Text, newStatus : Text) : async MoveResult {
+    if (Principal.isAnonymous(msg.caller)) {
+      return #err("You must be signed in.");
+    };
+    let reqOpt = Array.find(deliveryRequests, func(r) { r.requestId == requestId });
+    switch (reqOpt) {
+      case null { return #err("Request not found.") };
+      case (?req) {
+        if (not Principal.equal(req.riderPrincipal, msg.caller)) {
+          return #err("You are not the rider for this shipment.");
+        };
+        // Validate linear progression
+        let currentStatus = req.status;
+        let valid = (currentStatus == "Accepted" and newStatus == "In Transit") or
+                    (currentStatus == "In Transit" and newStatus == "Delivered");
+        if (not valid) {
+          return #err("Invalid status transition from " # currentStatus # " to " # newStatus # ".");
+        };
+        // Update delivery request status
+        deliveryRequests := Array.map(deliveryRequests, func(r) {
+          if (r.requestId == requestId) {
+            { requestId = r.requestId; packageId = r.packageId; senderPrincipal = r.senderPrincipal; riderPrincipal = r.riderPrincipal; routeId = r.routeId; status = newStatus; createdAt = r.createdAt }
+          } else r
+        });
+        // Append tracking entry
+        let entry : TrackingEntry = { status = newStatus; timestamp = Time.now() };
+        shipmentTrackings := Array.map(shipmentTrackings, func(t) {
+          if (t.requestId == requestId) {
+            { trackingCode = t.trackingCode; requestId = t.requestId; packageId = t.packageId; entries = Array.append(t.entries, [entry]); currentStatus = newStatus }
+          } else t
+        });
+        #ok("Status updated to " # newStatus # ".")
+      };
+    }
+  };
+
+  // Public tracking lookup by code (no auth required)
+  public query func getTrackingByCode(code : Text) : async ?ShipmentTracking {
+    Array.find(shipmentTrackings, func(t) { t.trackingCode == code })
+  };
+
+  // Public tracking lookup by request ID (no auth required)
+  public query func getTrackingByRequestId(requestId : Text) : async ?ShipmentTracking {
+    Array.find(shipmentTrackings, func(t) { t.requestId == requestId })
+  };
+
+  // Get tracking for sender's requests
+  public query (msg) func getSenderTrackings() : async [ShipmentTracking] {
+    let myRequests = Array.filter(deliveryRequests, func(r) { Principal.equal(r.senderPrincipal, msg.caller) });
+    let myRequestIds = Array.map(myRequests, func(r) { r.requestId });
+    Array.filter(shipmentTrackings, func(t) {
+      switch (Array.find(myRequestIds, func(id) { id == t.requestId })) {
+        case (?_) true;
+        case null false;
+      }
+    })
+  };
+
+
+  // ─── Move Payment Functions ───────────────────────────────────────────────
+
+  // Get caller's balance for a specific currency
+  public query (msg) func getWalletBalance(currency : Text) : async Float {
+    let map = getBalanceMap();
+    let bals = switch (map.get(msg.caller)) { case (?b) b; case null [] };
+    switch (Array.find(bals, func(b) { b.currency == currency })) {
+      case (?b) b.amount;
+      case null 0.0;
+    }
+  };
+
+  // Record a Move payment: deduct wallet if method="wallet", send delivery request, log transaction
+  public shared (msg) func recordMovePayment(
+    packageId : Text,
+    routeId : Text,
+    riderPrincipalText : Text,
+    amount : Float,
+    currency : Text,
+    _reference : Text,
+    method : Text,
+    dateStr : Text
+  ) : async MoveResult {
+    if (Principal.isAnonymous(msg.caller)) {
+      return #err("You must be signed in to make a payment.");
+    };
+
+    // Parse rider principal
+    let riderOpt : ?Principal = try { ?Principal.fromText(riderPrincipalText) } catch (_) { null };
+    let riderPrincipal = switch (riderOpt) {
+      case null { return #err("Invalid rider ID.") };
+      case (?p) p;
+    };
+
+    // If wallet method, validate and deduct balance
+    if (method == "wallet") {
+      let balMap = getBalanceMap();
+      let bals = switch (balMap.get(msg.caller)) { case (?b) b; case null [] };
+      let curBal : Float = switch (Array.find(bals, func(b) { b.currency == currency })) {
+        case (?b) b.amount;
+        case null 0.0;
+      };
+      if (curBal < amount) {
+        return #err("Insufficient wallet balance.");
+      };
+      // Deduct
+      let hasCur = switch (Array.find(bals, func(b) { b.currency == currency })) {
+        case (?_) true;
+        case null false;
+      };
+      let updatedBals = if (hasCur) {
+        Array.map(bals, func(b) {
+          if (b.currency == currency) { { currency; amount = curBal - amount } } else b
+        })
+      } else {
+        bals // shouldn't happen if balance check passed
+      };
+      balMap.put(msg.caller, updatedBals);
+      walletBalances := Iter.toArray(balMap.entries());
+    };
+
+    // Block duplicate requests for same package+route
+    let dupCheck = Array.find(deliveryRequests, func(r) {
+      r.packageId == packageId and r.routeId == routeId and Principal.equal(r.senderPrincipal, msg.caller)
+    });
+    switch (dupCheck) {
+      case (?_) { return #err("You already sent a request for this package to this rider.") };
+      case null {};
+    };
+
+    // Create delivery request
+    requestCounter += 1;
+    let requestId = "req-" # Nat.toText(requestCounter) # "-" # Nat.toText(Int.abs(Time.now()));
+    let req : DeliveryRequest = {
+      requestId;
+      packageId;
+      senderPrincipal = msg.caller;
+      riderPrincipal;
+      routeId;
+      status = "Pending";
+      createdAt = Time.now();
+    };
+    deliveryRequests := Array.append(deliveryRequests, [req]);
+
+    // Record transaction in Stancard Pay history
+    let txNow = Int.abs(Time.now());
+    let txId = "tx-move-" # Nat.toText(txNow);
+    let desc = "Move delivery fee — " # packageId;
+    let newTx : WalletTransaction = { id = txId; txType = "send"; currency; amount; date = dateStr; desc; status = "completed" };
+    let txMap = getTxMap();
+    let existingTxs = switch (txMap.get(msg.caller)) { case (?t) t; case null [] };
+    txMap.put(msg.caller, Array.append([newTx], existingTxs));
+    walletTransactions := Iter.toArray(txMap.entries());
+
+    #ok(requestId)
   };
 
 }

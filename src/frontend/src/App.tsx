@@ -12,6 +12,7 @@ import { MarketsScreen } from "./components/MarketsScreen";
 import { MoveScreen } from "./components/MoveScreen";
 import { PayScreen } from "./components/PayScreen";
 import { ProfileScreen } from "./components/ProfileScreen";
+import { TrackingPage } from "./components/TrackingPage";
 import { useActor } from "./hooks/useActor";
 import { useInternetIdentity } from "./hooks/useInternetIdentity";
 
@@ -164,6 +165,7 @@ interface ExtendedActor {
   ) => Promise<{ ok: string } | { err: string }>;
   getSenderRequests: () => Promise<unknown[]>;
   getAcceptedDeliveries: () => Promise<unknown[]>;
+  getTrackingByCode: (code: string) => Promise<unknown>;
 }
 
 function loadFromStorage<T>(key: string, defaultValue: T): T {
@@ -181,10 +183,42 @@ const isIOS =
   /iphone|ipad|ipod/i.test(navigator.userAgent) &&
   !(window as Window & { MSStream?: unknown }).MSStream;
 
+// Extract tracking code from URL on initial load
+function getInitialTrackingCode(): string | null {
+  const search = window.location.search;
+  const hash = window.location.hash;
+  const pathname = window.location.pathname;
+
+  // Check ?code= in query string
+  const params = new URLSearchParams(search);
+  if (params.get("code")) return params.get("code");
+
+  // Check #/track?code= in hash
+  if (hash.includes("/track")) {
+    const hashParams = new URLSearchParams(hash.split("?")[1] || "");
+    if (hashParams.get("code")) return hashParams.get("code");
+  }
+
+  // Check /track in pathname
+  if (pathname === "/track" || pathname.startsWith("/track?")) {
+    const pathParams = new URLSearchParams(pathname.split("?")[1] || search);
+    if (pathParams.get("code")) return pathParams.get("code");
+    return ""; // show tracking page with empty input
+  }
+
+  return null;
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>("home");
   const [alertBadge, setAlertBadge] = useState(false);
   const [activeBanner, setActiveBanner] = useState<Alert | null>(null);
+
+  // ── Tracking page state ──
+  // null = not showing, string (empty or code) = showing tracking page
+  const [trackingCode, setTrackingCode] = useState<string | null>(() =>
+    getInitialTrackingCode(),
+  );
 
   // ── Add to Home Screen state ──
   const [showA2HS, setShowA2HS] = useState(false);
@@ -371,6 +405,20 @@ export default function App() {
     setAlertBadge(true);
   }
 
+  function handleTrackShipment(code: string) {
+    setTrackingCode(code);
+  }
+
+  function handleExitTracking() {
+    setTrackingCode(null);
+    // Clean up URL params if they were set
+    if (window.location.search.includes("code=")) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("code");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }
+
   const screenContent = (
     <>
       {activeTab === "home" && (
@@ -401,8 +449,12 @@ export default function App() {
           onAlertTriggered={handleAlertTriggered}
         />
       )}
-      {activeTab === "move" && ( // biome-ignore lint: actor cast needed for MoveScreen compatibility
-        <MoveScreen identity={identity} actor={actor as any} />
+      {activeTab === "move" && (
+        <MoveScreen
+          identity={identity}
+          actor={actor as any}
+          onTrackShipment={handleTrackShipment}
+        />
       )}
       {activeTab === "profile" && (
         <ProfileScreen
@@ -577,6 +629,25 @@ export default function App() {
           Built with caffeine.ai
         </a>
       </div>
+
+      {/* ===== TRACKING PAGE OVERLAY ===== */}
+      <AnimatePresence>
+        {trackingCode !== null && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            style={{ position: "fixed", inset: 0, zIndex: 500 }}
+          >
+            <TrackingPage
+              code={trackingCode}
+              onBack={handleExitTracking}
+              actor={actor as any}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <Toaster position="top-center" />
     </>

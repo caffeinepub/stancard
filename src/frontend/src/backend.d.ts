@@ -161,6 +161,31 @@ export interface RequestWithPackage {
     description: string;
 }
 
+export interface TrackingEntry {
+    status: string;
+    timestamp: bigint;
+}
+
+export interface ShipmentTracking {
+    trackingCode: string;
+    requestId: string;
+    packageId: string;
+    entries: TrackingEntry[];
+    currentStatus: string;
+}
+
+export interface AcceptedDeliveryWithTracking {
+    requestId: string;
+    packageId: string;
+    senderPrincipal: Principal;
+    riderPrincipal: Principal;
+    routeId: string;
+    status: string;
+    createdAt: bigint;
+    trackingCode: string;
+    trackingEntries: TrackingEntry[];
+}
+
 export interface backendInterface {
     _initializeAccessControlWithSecret: (adminToken: string) => Promise<void>;
     getMarketData: () => Promise<MarketData>;
@@ -197,4 +222,11 @@ export interface backendInterface {
     respondToRequest: (requestId: string, accept: boolean) => Promise<MoveResult>;
     getSenderRequests: () => Promise<DeliveryRequest[]>;
     getAcceptedDeliveries: () => Promise<DeliveryRequest[]>;
+    getAcceptedDeliveriesWithTracking: () => Promise<AcceptedDeliveryWithTracking[]>;
+    updateShipmentStatus: (requestId: string, newStatus: string) => Promise<MoveResult>;
+    getTrackingByCode: (code: string) => Promise<ShipmentTracking | undefined>;
+    getTrackingByRequestId: (requestId: string) => Promise<ShipmentTracking | undefined>;
+    getSenderTrackings: () => Promise<ShipmentTracking[]>;
+    getWalletBalance: (currency: string) => Promise<number>;
+    recordMovePayment: (packageId: string, routeId: string, riderPrincipalText: string, amount: number, currency: string, reference: string, method: string, dateStr: string) => Promise<MoveResult>;
 }

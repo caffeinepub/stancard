@@ -72,6 +72,33 @@ interface RequestWithPackage {
 
 type Role = "rider" | "sender";
 
+// ─── Tracking types ─────────────────────────────────────────────────────────
+
+interface TrackingEntry {
+  status: string;
+  timestamp: bigint;
+}
+
+interface AcceptedDeliveryWithTracking {
+  requestId: string;
+  packageId: string;
+  senderPrincipal: { toString: () => string };
+  riderPrincipal: { toString: () => string };
+  routeId: string;
+  status: string;
+  createdAt: bigint;
+  trackingCode: string;
+  trackingEntries: TrackingEntry[];
+}
+
+interface ShipmentTracking {
+  trackingCode: string;
+  requestId: string;
+  packageId: string;
+  entries: TrackingEntry[];
+  currentStatus: string;
+}
+
 interface MoveActor {
   registerRoute: (
     vehicleType: string,
@@ -120,11 +147,39 @@ interface MoveActor {
   ) => Promise<{ ok: string } | { err: string }>;
   getSenderRequests: () => Promise<DeliveryRequest[]>;
   getAcceptedDeliveries: () => Promise<DeliveryRequest[]>;
+  getAcceptedDeliveriesWithTracking: () => Promise<
+    AcceptedDeliveryWithTracking[]
+  >;
+  updateShipmentStatus: (
+    requestId: string,
+    newStatus: string,
+  ) => Promise<{ ok: string } | { err: string }>;
+  getSenderTrackings: () => Promise<ShipmentTracking[]>;
+  getTrackingByCode: (code: string) => Promise<ShipmentTracking | undefined>;
+  getWalletBalance: (currency: string) => Promise<number>;
+  getMarketData: () => Promise<{
+    forex: Array<{ symbol: string; rate: number }>;
+    stocks: unknown[];
+    crypto: unknown[];
+    lastUpdated: bigint;
+    success: boolean;
+  }>;
+  recordMovePayment: (
+    packageId: string,
+    routeId: string,
+    riderPrincipalText: string,
+    amount: number,
+    currency: string,
+    reference: string,
+    method: string,
+    dateStr: string,
+  ) => Promise<{ ok: string } | { err: string }>;
 }
 
 interface MoveScreenProps {
   identity: unknown;
   actor: (MoveActor & Record<string, unknown>) | null;
+  onTrackShipment?: (code: string) => void;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -175,11 +230,44 @@ function statusBadge(status: string) {
   );
 }
 
+function trackingStatusBadge(status: string) {
+  const styles: Record<string, { bg: string; color: string }> = {
+    Pending: { bg: "rgba(150,150,150,0.1)", color: "#9A9A9A" },
+    Accepted: { bg: "rgba(74,144,217,0.12)", color: "#4A90D9" },
+    "In Transit": { bg: "rgba(245,166,35,0.12)", color: "#F5A623" },
+    Delivered: { bg: "rgba(126,211,33,0.12)", color: "#7ED321" },
+    Declined: { bg: "#1A0A0A", color: "#F87171" },
+  };
+  const s = styles[status] ?? { bg: "#1A1A1A", color: "#9A9A9A" };
+  return (
+    <span
+      style={{
+        background: s.bg,
+        color: s.color,
+        borderRadius: 6,
+        padding: "2px 8px",
+        fontSize: 11,
+        fontWeight: 600,
+        letterSpacing: "0.04em",
+        border: `1px solid ${s.color}22`,
+      }}
+    >
+      {status}
+    </span>
+  );
+}
+
 const CARD_STYLE: React.CSSProperties = {
   background: "#111",
   border: "1px solid #1A1A1A",
   borderRadius: 12,
   padding: 16,
+};
+
+const MOVE_FEES: Record<string, number> = {
+  Small: 2000,
+  Medium: 5000,
+  Large: 10000,
 };
 
 const GOLD_BTN: React.CSSProperties = {
@@ -1395,6 +1483,489 @@ function DeliveryMiniMap({
 
 // ─── Matched Riders Panel ────────────────────────────────────────────────────
 
+// ─── MovePaymentModal ────────────────────────────────────────────────────────
+
+function MovePaymentModal({
+  pkg,
+  route,
+  actor,
+  onSuccess,
+  onClose,
+}: {
+  pkg: PackageType;
+  route: RiderRoute;
+  actor: MoveActor;
+  onSuccess: () => void;
+  onClose: () => void;
+}) {
+  const fee = MOVE_FEES[pkg.size] ?? 2000;
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  const [ngnRate, setNgnRate] = useState<number>(1600);
+  const [loading, setLoading] = useState(true);
+  const [paying, setPaying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const scriptLoadedRef = useRef(false);
+
+  // Load Flutterwave script
+  useEffect(() => {
+    if (scriptLoadedRef.current) return;
+    const existing = document.querySelector(
+      'script[src="https://checkout.flutterwave.com/v3.js"]',
+    );
+    if (existing) {
+      scriptLoadedRef.current = true;
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://checkout.flutterwave.com/v3.js";
+    script.async = true;
+    script.onload = () => {
+      scriptLoadedRef.current = true;
+    };
+    document.body.appendChild(script);
+    return () => {
+      // Don't remove — keep cached for subsequent opens
+    };
+  }, []);
+
+  // Fetch wallet balance and forex rate in parallel
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+      try {
+        const [balance, marketData] = await Promise.allSettled([
+          actor.getWalletBalance("NGN"),
+          actor.getMarketData(),
+        ]);
+        if (balance.status === "fulfilled") {
+          setWalletBalance(balance.value);
+        } else {
+          setWalletBalance(0);
+        }
+        if (marketData.status === "fulfilled") {
+          const ngn = marketData.value.forex.find((f) => f.symbol === "NGN");
+          if (ngn && ngn.rate > 0) {
+            setNgnRate(ngn.rate);
+          }
+        }
+      } catch {
+        setWalletBalance(0);
+      } finally {
+        setLoading(false);
+      }
+    }
+    void loadData();
+  }, [actor]);
+
+  function generateTxRef() {
+    return `MOVE-PAY-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  async function handleWalletPay() {
+    setError(null);
+    setPaying(true);
+    const ref = generateTxRef();
+    const dateStr = new Date().toISOString();
+    try {
+      const result = await actor.recordMovePayment(
+        pkg.packageId,
+        route.routeId,
+        route.riderPrincipal.toString(),
+        fee,
+        "NGN",
+        ref,
+        "wallet",
+        dateStr,
+      );
+      if ("err" in result) {
+        setError(result.err);
+      } else {
+        setSuccess(true);
+        setTimeout(() => onSuccess(), 1800);
+      }
+    } catch {
+      setError("Payment failed. Please try again.");
+    } finally {
+      setPaying(false);
+    }
+  }
+
+  function handleFlutterwavePay() {
+    setError(null);
+    if (typeof window.FlutterwaveCheckout !== "function") {
+      setError("Payment system is loading. Please try again in a moment.");
+      return;
+    }
+    const ref = generateTxRef();
+    const dateStr = new Date().toISOString();
+    window.FlutterwaveCheckout({
+      public_key: "FLWPUBK-811e445867156c0d669a1d1c7876bcb7-X",
+      tx_ref: ref,
+      amount: fee,
+      currency: "NGN",
+      customer: {
+        email: "user@stancard.app",
+        name: "Stancard User",
+      },
+      customizations: {
+        title: "Stancard Move",
+        description: `Delivery fee - ${pkg.packageId}`,
+        logo: "",
+      },
+      callback: async (data) => {
+        if (data.status === "successful" || data.status === "completed") {
+          setPaying(true);
+          try {
+            const result = await actor.recordMovePayment(
+              pkg.packageId,
+              route.routeId,
+              route.riderPrincipal.toString(),
+              fee,
+              "NGN",
+              ref,
+              "flutterwave",
+              dateStr,
+            );
+            if ("err" in result) {
+              setError(result.err);
+            } else {
+              setSuccess(true);
+              setTimeout(() => onSuccess(), 1800);
+            }
+          } catch {
+            setError(
+              `Failed to record payment. Contact support with ref: ${ref}`,
+            );
+          } finally {
+            setPaying(false);
+          }
+        } else {
+          setError(
+            "Payment was cancelled. Please try again or choose a different payment method.",
+          );
+        }
+      },
+      onclose: () => {
+        // User closed without completing — stay on modal
+      },
+    });
+  }
+
+  const canPayFromWallet = walletBalance !== null && walletBalance >= fee;
+  const usdEquiv = (fee / ngnRate).toFixed(2);
+
+  if (success) {
+    return (
+      <div style={OVERLAY} role="presentation">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          style={{ ...MODAL_CARD, maxWidth: 400, textAlign: "center" }}
+        >
+          <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
+          <h3
+            style={{
+              color: "#D4AF37",
+              fontSize: 20,
+              fontWeight: 700,
+              marginBottom: 8,
+            }}
+          >
+            Payment Successful
+          </h3>
+          <p style={{ color: "#9A9A9A", fontSize: 14 }}>
+            Your delivery request has been sent to the rider.
+          </p>
+        </motion.div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={OVERLAY}
+      onClick={onClose}
+      onKeyDown={(e) => e.key === "Escape" && onClose()}
+      role="presentation"
+      data-ocid="move.payment_modal"
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 24 }}
+        transition={{ duration: 0.22 }}
+        style={{ ...MODAL_CARD, maxWidth: 460 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            marginBottom: 20,
+          }}
+        >
+          <div>
+            <h3
+              style={{
+                color: "#E8E8E8",
+                fontSize: 18,
+                fontWeight: 700,
+                margin: 0,
+              }}
+            >
+              Delivery Fee
+            </h3>
+            <p style={{ color: "#6C6C6C", fontSize: 12, marginTop: 4 }}>
+              Complete payment to send your request
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "#6C6C6C",
+              padding: 4,
+            }}
+            data-ocid="move.payment_modal.close_button"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Fee Summary Card */}
+        <div
+          style={{
+            background: "#0A0A0A",
+            border: "1px solid #2A2A2A",
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 20,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 12,
+            }}
+          >
+            <div>
+              <p
+                style={{
+                  color: "#6C6C6C",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.1em",
+                  margin: 0,
+                }}
+              >
+                Package Size
+              </p>
+              <p
+                style={{
+                  color: "#D4AF37",
+                  fontSize: 16,
+                  fontWeight: 700,
+                  margin: "4px 0 0",
+                }}
+              >
+                {pkg.size}
+              </p>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <p
+                style={{
+                  color: "#6C6C6C",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.1em",
+                  margin: 0,
+                }}
+              >
+                Rider
+              </p>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  marginTop: 4,
+                  justifyContent: "flex-end",
+                }}
+              >
+                <span style={{ color: "#D4AF37" }}>
+                  {vehicleIcon(route.vehicleType, 14)}
+                </span>
+                <p
+                  style={{
+                    color: "#E8E8E8",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    margin: 0,
+                  }}
+                >
+                  {route.vehicleType}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div
+            style={{
+              borderTop: "1px solid #2A2A2A",
+              paddingTop: 12,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+            }}
+          >
+            <div>
+              <p style={{ color: "#6C6C6C", fontSize: 11, margin: 0 }}>
+                Delivery Fee
+              </p>
+              <p
+                style={{
+                  color: "#F2D37A",
+                  fontSize: 26,
+                  fontWeight: 800,
+                  margin: "2px 0 0",
+                  letterSpacing: "-0.02em",
+                }}
+              >
+                ₦{fee.toLocaleString()}
+              </p>
+            </div>
+            <p style={{ color: "#6C6C6C", fontSize: 13, margin: 0 }}>
+              ≈ ${usdEquiv} USD
+            </p>
+          </div>
+          <p
+            style={{
+              color: "#6C6C6C",
+              fontSize: 11,
+              marginTop: 8,
+              marginBottom: 0,
+            }}
+          >
+            {route.departureCity} → {route.destinationCity} · {route.travelDate}
+          </p>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div
+            style={{
+              background: "rgba(248,113,113,0.08)",
+              border: "1px solid rgba(248,113,113,0.3)",
+              borderRadius: 8,
+              padding: "10px 14px",
+              marginBottom: 16,
+              color: "#F87171",
+              fontSize: 13,
+            }}
+            data-ocid="move.payment_modal.error_state"
+          >
+            {error}
+          </div>
+        )}
+
+        {/* Payment Buttons */}
+        {loading ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <Skeleton
+              style={{ height: 44, borderRadius: 8, background: "#1A1A1A" }}
+            />
+            <Skeleton
+              style={{ height: 44, borderRadius: 8, background: "#1A1A1A" }}
+            />
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {canPayFromWallet && (
+              <button
+                type="button"
+                onClick={handleWalletPay}
+                disabled={paying}
+                style={{
+                  ...GOLD_BTN,
+                  width: "100%",
+                  justifyContent: "center",
+                  padding: "12px 18px",
+                  fontSize: 14,
+                  opacity: paying ? 0.7 : 1,
+                }}
+                data-ocid="move.payment_modal.wallet_button"
+              >
+                {paying
+                  ? "Processing..."
+                  : `Pay from Wallet (₦${fee.toLocaleString()})`}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleFlutterwavePay}
+              disabled={paying}
+              style={{
+                background: "transparent",
+                border: "1px solid #D4AF37",
+                color: "#D4AF37",
+                borderRadius: 8,
+                padding: "12px 18px",
+                cursor: paying ? "not-allowed" : "pointer",
+                fontSize: 14,
+                fontWeight: 600,
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                opacity: paying ? 0.7 : 1,
+              }}
+              data-ocid="move.payment_modal.flutterwave_button"
+            >
+              Pay via Flutterwave
+            </button>
+            {canPayFromWallet && (
+              <p
+                style={{
+                  color: "#6C6C6C",
+                  fontSize: 11,
+                  textAlign: "center",
+                  margin: 0,
+                }}
+              >
+                Wallet balance: ₦
+                {walletBalance !== null ? walletBalance.toLocaleString() : "—"}
+              </p>
+            )}
+            {!canPayFromWallet && walletBalance !== null && (
+              <p
+                style={{
+                  color: "#6C6C6C",
+                  fontSize: 11,
+                  textAlign: "center",
+                  margin: 0,
+                }}
+              >
+                Insufficient wallet balance (₦{walletBalance.toLocaleString()})
+                — use Flutterwave
+              </p>
+            )}
+          </div>
+        )}
+      </motion.div>
+    </div>
+  );
+}
+
 function MatchedRidersPanel({
   pkg,
   actor,
@@ -1410,7 +1981,7 @@ function MatchedRidersPanel({
 }) {
   const [riders, setRiders] = useState<RiderRoute[]>([]);
   const [loading, setLoading] = useState(true);
-  const [requesting, setRequesting] = useState<string | null>(null);
+  const [paymentRoute, setPaymentRoute] = useState<RiderRoute | null>(null);
   const [mapMarkers, setMapMarkers] = useState<MapMarker[]>([]);
   const [mapArcs, setMapArcs] = useState<MapArc[]>([]);
   const [highlightedRouteId, setHighlightedRouteId] = useState<string | null>(
@@ -1474,25 +2045,8 @@ function MatchedRidersPanel({
     void load();
   }, [actor, pkg.destinationCity, pkg.destinationCountry]);
 
-  async function handleRequest(route: RiderRoute) {
-    setRequesting(route.routeId);
-    try {
-      const result = await actor.sendDeliveryRequest(
-        pkg.packageId,
-        route.routeId,
-        route.riderPrincipal.toString(),
-      );
-      if ("err" in result) {
-        toast.error(result.err);
-      } else {
-        toast.success("Request sent to rider!");
-        onRequestSent();
-      }
-    } catch {
-      toast.error("Failed to send request");
-    } finally {
-      setRequesting(null);
-    }
+  function handleRequest(route: RiderRoute) {
+    setPaymentRoute(route);
   }
 
   // Check if a request already sent to a rider for this package
@@ -1512,225 +2066,249 @@ function MatchedRidersPanel({
   }
 
   return (
-    <div
-      style={OVERLAY}
-      onClick={onClose}
-      onKeyDown={(e) => e.key === "Escape" && onClose()}
-      role="presentation"
-      data-ocid="move.matched_riders_panel"
-    >
-      <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: 24 }}
-        transition={{ duration: 0.22 }}
-        style={{ ...MODAL_CARD, maxWidth: 540 }}
-        onClick={(e) => e.stopPropagation()}
+    <>
+      <div
+        style={OVERLAY}
+        onClick={onClose}
+        onKeyDown={(e) => e.key === "Escape" && onClose()}
+        role="presentation"
+        data-ocid="move.matched_riders_panel"
       >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 16,
-          }}
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 24 }}
+          transition={{ duration: 0.22 }}
+          style={{ ...MODAL_CARD, maxWidth: 540 }}
+          onClick={(e) => e.stopPropagation()}
         >
-          <div>
-            <h3
-              style={{
-                color: "#E8E8E8",
-                fontSize: 17,
-                fontWeight: 700,
-                margin: 0,
-              }}
-            >
-              Matched Riders
-            </h3>
-            <p style={{ color: "#6C6C6C", fontSize: 12, marginTop: 2 }}>
-              {pkg.destinationCity}, {pkg.destinationCountry}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
+          <div
             style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              color: "#6C6C6C",
-              padding: 4,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 16,
             }}
-            data-ocid="move.matched_riders_panel.close_button"
           >
-            <X size={20} />
-          </button>
-        </div>
-
-        {loading ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <Skeleton
+            <div>
+              <h3
+                style={{
+                  color: "#E8E8E8",
+                  fontSize: 17,
+                  fontWeight: 700,
+                  margin: 0,
+                }}
+              >
+                Matched Riders
+              </h3>
+              <p style={{ color: "#6C6C6C", fontSize: 12, marginTop: 2 }}>
+                {pkg.destinationCity}, {pkg.destinationCountry}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
               style={{
-                height: 220,
-                borderRadius: 12,
-                background: "#1A1A1A",
-                marginBottom: 4,
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "#6C6C6C",
+                padding: 4,
               }}
-            />
-            {[1, 2, 3].map((i) => (
-              <Skeleton
-                key={i}
-                style={{ height: 80, borderRadius: 10, background: "#1A1A1A" }}
-              />
-            ))}
+              data-ocid="move.matched_riders_panel.close_button"
+            >
+              <X size={20} />
+            </button>
           </div>
-        ) : riders.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "40px 0" }}>
-            <Route
-              size={32}
-              style={{ color: "#D4AF37", margin: "0 auto 12px" }}
-            />
-            <p style={{ color: "#9A9A9A", fontSize: 14 }}>
-              No riders going to this destination yet.
-            </p>
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {/* Map above cards */}
-            {mapMarkers.length > 0 && (
-              <MoveMap
-                markers={mapMarkers}
-                arcs={mapArcs}
-                onMarkerClick={handleMarkerClick}
-                height={220}
-                interactive={true}
-              />
-            )}
 
-            {/* Rider cards */}
+          {loading ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {riders.map((route, i) => {
-                const reqStatus = getRequestStatus(route.routeId);
-                const isRequesting = requesting === route.routeId;
-                const isHighlighted = highlightedRouteId === route.routeId;
-                return (
-                  <div
-                    key={route.routeId}
-                    ref={(el) => {
-                      if (el) cardRefs.current.set(route.routeId, el);
-                    }}
-                    style={{
-                      ...CARD_STYLE,
-                      border: isHighlighted
-                        ? "1px solid #D4AF37"
-                        : "1px solid #1A1A1A",
-                      transition: "border-color 0.2s ease",
-                    }}
-                    data-ocid={`move.matched_rider.item.${i + 1}`}
-                  >
+              <Skeleton
+                style={{
+                  height: 220,
+                  borderRadius: 12,
+                  background: "#1A1A1A",
+                  marginBottom: 4,
+                }}
+              />
+              {[1, 2, 3].map((i) => (
+                <Skeleton
+                  key={i}
+                  style={{
+                    height: 80,
+                    borderRadius: 10,
+                    background: "#1A1A1A",
+                  }}
+                />
+              ))}
+            </div>
+          ) : riders.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "40px 0" }}>
+              <Route
+                size={32}
+                style={{ color: "#D4AF37", margin: "0 auto 12px" }}
+              />
+              <p style={{ color: "#9A9A9A", fontSize: 14 }}>
+                No riders going to this destination yet.
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {/* Map above cards */}
+              {mapMarkers.length > 0 && (
+                <MoveMap
+                  markers={mapMarkers}
+                  arcs={mapArcs}
+                  onMarkerClick={handleMarkerClick}
+                  height={220}
+                  interactive={true}
+                />
+              )}
+
+              {/* Rider cards */}
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 10 }}
+              >
+                {riders.map((route, i) => {
+                  const reqStatus = getRequestStatus(route.routeId);
+                  const isHighlighted = highlightedRouteId === route.routeId;
+                  return (
                     <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        marginBottom: 10,
+                      key={route.routeId}
+                      ref={(el) => {
+                        if (el) cardRefs.current.set(route.routeId, el);
                       }}
+                      style={{
+                        ...CARD_STYLE,
+                        border: isHighlighted
+                          ? "1px solid #D4AF37"
+                          : "1px solid #1A1A1A",
+                        transition: "border-color 0.2s ease",
+                      }}
+                      data-ocid={`move.matched_rider.item.${i + 1}`}
                     >
-                      <span
+                      <div
                         style={{
-                          width: 36,
-                          height: 36,
-                          borderRadius: 8,
-                          background: "#1A1A1A",
-                          border: "1px solid #2A2A2A",
                           display: "flex",
                           alignItems: "center",
-                          justifyContent: "center",
-                          color: "#D4AF37",
-                          flexShrink: 0,
+                          gap: 10,
+                          marginBottom: 10,
                         }}
                       >
-                        {vehicleIcon(route.vehicleType, 16)}
-                      </span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div
+                        <span
                           style={{
-                            color: "#E8E8E8",
-                            fontSize: 13,
+                            width: 36,
+                            height: 36,
+                            borderRadius: 8,
+                            background: "#1A1A1A",
+                            border: "1px solid #2A2A2A",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            color: "#D4AF37",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {vehicleIcon(route.vehicleType, 16)}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div
+                            style={{
+                              color: "#E8E8E8",
+                              fontSize: 13,
+                              fontWeight: 600,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {route.departureCity} → {route.destinationCity}
+                          </div>
+                          <div
+                            style={{
+                              color: "#6C6C6C",
+                              fontSize: 12,
+                              marginTop: 2,
+                            }}
+                          >
+                            {route.departureCountry} →{" "}
+                            {route.destinationCountry}
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            background: "#1A1A1A",
+                            color: "#D4AF37",
+                            borderRadius: 6,
+                            padding: "3px 8px",
+                            fontSize: 11,
                             fontWeight: 600,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
+                            flexShrink: 0,
                           }}
                         >
-                          {route.departureCity} → {route.destinationCity}
-                        </div>
-                        <div
-                          style={{
-                            color: "#6C6C6C",
-                            fontSize: 12,
-                            marginTop: 2,
-                          }}
-                        >
-                          {route.departureCountry} → {route.destinationCountry}
-                        </div>
+                          {route.cargoSpace}
+                        </span>
                       </div>
-                      <span
+                      <div
                         style={{
-                          background: "#1A1A1A",
-                          color: "#D4AF37",
-                          borderRadius: 6,
-                          padding: "3px 8px",
-                          fontSize: 11,
-                          fontWeight: 600,
-                          flexShrink: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
                         }}
                       >
-                        {route.cargoSpace}
-                      </span>
+                        <span style={{ color: "#6C6C6C", fontSize: 12 }}>
+                          📅 {route.travelDate}
+                        </span>
+                        {reqStatus ? (
+                          statusBadge(reqStatus)
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleRequest(route)}
+                            style={{
+                              ...GOLD_BTN,
+                              padding: "7px 14px",
+                              fontSize: 13,
+                            }}
+                            data-ocid={`move.matched_rider.request_button.${i + 1}`}
+                          >
+                            Request Rider
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      <span style={{ color: "#6C6C6C", fontSize: 12 }}>
-                        📅 {route.travelDate}
-                      </span>
-                      {reqStatus ? (
-                        statusBadge(reqStatus)
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleRequest(route)}
-                          disabled={isRequesting}
-                          style={{
-                            ...GOLD_BTN,
-                            padding: "7px 14px",
-                            fontSize: 13,
-                            opacity: isRequesting ? 0.7 : 1,
-                          }}
-                          data-ocid={`move.matched_rider.request_button.${i + 1}`}
-                        >
-                          {isRequesting ? "Sending..." : "Request Rider"}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
-      </motion.div>
-    </div>
+          )}
+        </motion.div>
+      </div>
+      {paymentRoute && (
+        <AnimatePresence>
+          <MovePaymentModal
+            pkg={pkg}
+            route={paymentRoute}
+            actor={actor}
+            onSuccess={() => {
+              setPaymentRoute(null);
+              onRequestSent();
+            }}
+            onClose={() => setPaymentRoute(null)}
+          />
+        </AnimatePresence>
+      )}
+    </>
   );
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export function MoveScreen({ identity, actor }: MoveScreenProps) {
+export function MoveScreen({
+  identity,
+  actor,
+  onTrackShipment,
+}: MoveScreenProps) {
   const isLoggedIn = identity !== null && identity !== undefined;
   const [role, setRole] = useState<Role>("rider");
 
@@ -1740,14 +2318,18 @@ export function MoveScreen({ identity, actor }: MoveScreenProps) {
     RequestWithPackage[]
   >([]);
   const [acceptedDeliveries, setAcceptedDeliveries] = useState<
-    DeliveryRequest[]
+    AcceptedDeliveryWithTracking[]
   >([]);
   const [loadingRoutes, setLoadingRoutes] = useState(false);
   const [loadingRequests, setLoadingRequests] = useState(false);
+  const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
 
   // Sender state
   const [senderPackages, setSenderPackages] = useState<PackageType[]>([]);
   const [senderRequests, setSenderRequests] = useState<DeliveryRequest[]>([]);
+  const [senderTrackings, setSenderTrackings] = useState<ShipmentTracking[]>(
+    [],
+  );
   const [loadingPackages, setLoadingPackages] = useState(false);
 
   // Browse state
@@ -1809,7 +2391,7 @@ export function MoveScreen({ identity, actor }: MoveScreenProps) {
       const [routes, requests, accepted] = await Promise.all([
         actor.getRiderRoutes(),
         actor.getIncomingRequests(),
-        actor.getAcceptedDeliveries(),
+        actor.getAcceptedDeliveriesWithTracking(),
       ]);
       if (mountedRef.current) {
         setRiderRoutes(routes);
@@ -1830,18 +2412,38 @@ export function MoveScreen({ identity, actor }: MoveScreenProps) {
     if (!actor) return;
     setLoadingPackages(true);
     try {
-      const [pkgs, requests] = await Promise.all([
+      const [pkgs, requests, trackings] = await Promise.all([
         actor.getSenderPackages(),
         actor.getSenderRequests(),
+        actor.getSenderTrackings(),
       ]);
       if (mountedRef.current) {
         setSenderPackages(pkgs);
         setSenderRequests(requests);
+        setSenderTrackings(trackings);
       }
     } catch {
       toast.error("Failed to load sender data");
     } finally {
       if (mountedRef.current) setLoadingPackages(false);
+    }
+  }
+
+  async function handleUpdateStatus(requestId: string, newStatus: string) {
+    if (!actor) return;
+    setUpdatingStatusId(requestId);
+    try {
+      const result = await actor.updateShipmentStatus(requestId, newStatus);
+      if ("err" in result) {
+        toast.error(result.err);
+      } else {
+        toast.success(`Marked as ${newStatus}`);
+        await loadRiderData();
+      }
+    } catch {
+      toast.error("Failed to update status");
+    } finally {
+      setUpdatingStatusId(null);
     }
   }
 
@@ -2300,6 +2902,11 @@ export function MoveScreen({ identity, actor }: MoveScreenProps) {
                 : route
                   ? `${route.destinationCity}, ${route.destinationCountry}`
                   : null;
+              const isUpdating = updatingStatusId === d.requestId;
+              const trackingStatus =
+                d.trackingEntries.length > 0
+                  ? d.trackingEntries[d.trackingEntries.length - 1].status
+                  : d.status;
               return (
                 <motion.div
                   key={d.requestId}
@@ -2313,16 +2920,17 @@ export function MoveScreen({ identity, actor }: MoveScreenProps) {
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
-                      alignItems: "center",
-                      marginBottom: pickupStr && destStr ? 12 : 6,
+                      alignItems: "flex-start",
+                      marginBottom: 10,
                     }}
                   >
-                    <div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div
                         style={{
                           color: "#E8E8E8",
                           fontSize: 13,
                           fontWeight: 600,
+                          marginBottom: 2,
                         }}
                       >
                         Package #{d.packageId.slice(-6)}
@@ -2337,21 +2945,205 @@ export function MoveScreen({ identity, actor }: MoveScreenProps) {
                         Sender:{" "}
                         {truncatePrincipal(d.senderPrincipal.toString())}
                       </div>
+                      {/* Tracking code */}
+                      {d.trackingCode && (
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            marginTop: 8,
+                          }}
+                        >
+                          <span
+                            style={{
+                              color: "#D4AF37",
+                              fontSize: 12,
+                              fontWeight: 700,
+                              fontFamily: "monospace",
+                              letterSpacing: "0.06em",
+                              background: "rgba(212,175,55,0.08)",
+                              border: "1px solid rgba(212,175,55,0.2)",
+                              borderRadius: 6,
+                              padding: "2px 8px",
+                            }}
+                          >
+                            {d.trackingCode}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard
+                                .writeText(d.trackingCode)
+                                .then(() => {
+                                  toast.success("Tracking code copied!");
+                                })
+                                .catch(() => toast.error("Failed to copy"));
+                            }}
+                            style={{
+                              background: "none",
+                              border: "1px solid #2A2A2A",
+                              borderRadius: 5,
+                              cursor: "pointer",
+                              color: "#9A9A9A",
+                              padding: "2px 6px",
+                              fontSize: 11,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 3,
+                            }}
+                            data-ocid={`move.rider.accepted_delivery.copy_tracking.${i + 1}`}
+                          >
+                            <svg
+                              width="10"
+                              height="10"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              aria-hidden="true"
+                              role="presentation"
+                            >
+                              <rect x="9" y="9" width="13" height="13" rx="2" />
+                              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                            </svg>
+                            Copy
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <div
                       style={{
                         display: "flex",
                         flexDirection: "column",
                         alignItems: "flex-end",
-                        gap: 4,
+                        gap: 6,
+                        flexShrink: 0,
+                        marginLeft: 10,
                       }}
                     >
-                      {statusBadge(d.status)}
+                      {trackingStatusBadge(trackingStatus)}
                       <PackageCheck size={14} style={{ color: "#4ADE80" }} />
                     </div>
                   </div>
+
                   {pickupStr && destStr && (
-                    <DeliveryMiniMap pickup={pickupStr} destination={destStr} />
+                    <div style={{ marginBottom: 12 }}>
+                      <DeliveryMiniMap
+                        pickup={pickupStr}
+                        destination={destStr}
+                      />
+                    </div>
+                  )}
+
+                  {/* Contextual status action button */}
+                  {trackingStatus === "Accepted" && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleUpdateStatus(d.requestId, "In Transit")
+                      }
+                      disabled={isUpdating}
+                      style={{
+                        ...GOLD_BTN,
+                        width: "100%",
+                        justifyContent: "center",
+                        opacity: isUpdating ? 0.7 : 1,
+                        fontSize: 13,
+                        padding: "9px 16px",
+                      }}
+                      data-ocid={`move.rider.accepted_delivery.mark_in_transit.${i + 1}`}
+                    >
+                      {isUpdating ? (
+                        <span
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: 14,
+                              height: 14,
+                              border: "2px solid rgba(0,0,0,0.3)",
+                              borderTopColor: "#111",
+                              borderRadius: "50%",
+                              animation: "spin 0.7s linear infinite",
+                              display: "inline-block",
+                            }}
+                          />
+                          Updating...
+                        </span>
+                      ) : (
+                        "🚚 Mark as In Transit"
+                      )}
+                    </button>
+                  )}
+                  {trackingStatus === "In Transit" && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleUpdateStatus(d.requestId, "Delivered")
+                      }
+                      disabled={isUpdating}
+                      style={{
+                        ...GOLD_BTN,
+                        width: "100%",
+                        justifyContent: "center",
+                        opacity: isUpdating ? 0.7 : 1,
+                        fontSize: 13,
+                        padding: "9px 16px",
+                        background:
+                          "linear-gradient(135deg, #84E080 0%, #5CB85C 100%)",
+                        color: "#fff",
+                      }}
+                      data-ocid={`move.rider.accepted_delivery.mark_delivered.${i + 1}`}
+                    >
+                      {isUpdating ? (
+                        <span
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: 14,
+                              height: 14,
+                              border: "2px solid rgba(255,255,255,0.3)",
+                              borderTopColor: "#fff",
+                              borderRadius: "50%",
+                              animation: "spin 0.7s linear infinite",
+                              display: "inline-block",
+                            }}
+                          />
+                          Updating...
+                        </span>
+                      ) : (
+                        "✅ Mark as Delivered"
+                      )}
+                    </button>
+                  )}
+                  {trackingStatus === "Delivered" && (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 6,
+                        background: "rgba(126,211,33,0.08)",
+                        border: "1px solid rgba(126,211,33,0.2)",
+                        borderRadius: 8,
+                        padding: "8px 12px",
+                        color: "#7ED321",
+                        fontSize: 13,
+                        fontWeight: 600,
+                      }}
+                    >
+                      ✅ Delivered
+                    </div>
                   )}
                 </motion.div>
               );
@@ -2425,10 +3217,19 @@ export function MoveScreen({ identity, actor }: MoveScreenProps) {
               const pkgRequests = senderRequests.filter(
                 (r) => r.packageId === pkg.packageId,
               );
-              // Find accepted request for mini map
+              // Find accepted request for mini map and tracking
               const acceptedReq = pkgRequests.find(
-                (r) => r.status === "Accepted",
+                (r) =>
+                  r.status === "Accepted" ||
+                  r.status === "In Transit" ||
+                  r.status === "Delivered",
               );
+              // Find tracking for this package
+              const pkgTracking = acceptedReq
+                ? senderTrackings.find(
+                    (t) => t.requestId === acceptedReq.requestId,
+                  )
+                : null;
               return (
                 <motion.div
                   key={pkg.packageId}
@@ -2498,6 +3299,114 @@ export function MoveScreen({ identity, actor }: MoveScreenProps) {
                     {pkg.description}
                   </div>
 
+                  {/* Tracking code + Track Shipment button */}
+                  {pkgTracking && (
+                    <div
+                      style={{
+                        background: "rgba(212,175,55,0.05)",
+                        border: "1px solid rgba(212,175,55,0.15)",
+                        borderRadius: 8,
+                        padding: "10px 12px",
+                        marginBottom: 10,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 8,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: "#D4AF37",
+                            fontSize: 12,
+                            fontWeight: 700,
+                            fontFamily: "monospace",
+                            letterSpacing: "0.06em",
+                          }}
+                        >
+                          {pkgTracking.trackingCode}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard
+                              .writeText(pkgTracking.trackingCode)
+                              .then(() => {
+                                toast.success("Tracking code copied!");
+                              })
+                              .catch(() => toast.error("Failed to copy"));
+                          }}
+                          style={{
+                            background: "none",
+                            border: "1px solid #2A2A2A",
+                            borderRadius: 5,
+                            cursor: "pointer",
+                            color: "#9A9A9A",
+                            padding: "2px 6px",
+                            fontSize: 10,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 3,
+                          }}
+                          data-ocid={`move.sender.tracking.copy.${i + 1}`}
+                        >
+                          <svg
+                            width="9"
+                            height="9"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            aria-hidden="true"
+                            role="presentation"
+                          >
+                            <rect x="9" y="9" width="13" height="13" rx="2" />
+                            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                          </svg>
+                          Copy
+                        </button>
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        {trackingStatusBadge(pkgTracking.currentStatus)}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onTrackShipment?.(pkgTracking.trackingCode)
+                          }
+                          style={{
+                            background: "rgba(212,175,55,0.1)",
+                            border: "1px solid rgba(212,175,55,0.25)",
+                            borderRadius: 6,
+                            color: "#D4AF37",
+                            cursor: "pointer",
+                            padding: "4px 10px",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                          data-ocid={`move.sender.track_shipment.${i + 1}`}
+                        >
+                          📍 Track Shipment
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Request statuses */}
                   {pkgRequests.length > 0 && (
                     <div
@@ -2528,7 +3437,9 @@ export function MoveScreen({ identity, actor }: MoveScreenProps) {
                               alignItems: "center",
                             }}
                           >
-                            {statusBadge(req.status)}
+                            {pkgTracking
+                              ? trackingStatusBadge(pkgTracking.currentStatus)
+                              : statusBadge(req.status)}
                             {req.status === "Declined" && (
                               <button
                                 type="button"
@@ -2732,7 +3643,7 @@ export function MoveScreen({ identity, actor }: MoveScreenProps) {
             display: "flex",
             alignItems: "center",
             gap: 10,
-            marginBottom: 6,
+            marginBottom: 10,
           }}
         >
           <div
@@ -2750,7 +3661,7 @@ export function MoveScreen({ identity, actor }: MoveScreenProps) {
           >
             <Truck size={18} style={{ color: "#111" }} />
           </div>
-          <div>
+          <div style={{ flex: 1 }}>
             <h1
               style={{
                 color: "#E8E8E8",
@@ -2773,6 +3684,28 @@ export function MoveScreen({ identity, actor }: MoveScreenProps) {
               Deliver. Connect. Move.
             </p>
           </div>
+          {/* Track Shipment button */}
+          <button
+            type="button"
+            onClick={() => onTrackShipment?.("")}
+            style={{
+              background: "rgba(212,175,55,0.08)",
+              border: "1px solid rgba(212,175,55,0.25)",
+              borderRadius: 9,
+              color: "#D4AF37",
+              cursor: "pointer",
+              padding: "8px 12px",
+              fontSize: 12,
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              flexShrink: 0,
+            }}
+            data-ocid="move.track_shipment.button"
+          >
+            📍 Track
+          </button>
         </div>
       </div>
 
@@ -2893,6 +3826,13 @@ export function MoveScreen({ identity, actor }: MoveScreenProps) {
           />
         )}
       </AnimatePresence>
+
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </main>
   );
 }

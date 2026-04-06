@@ -55,6 +55,8 @@ export interface NewsData {
 export interface _SERVICE {
   getMarketData: ActorMethod<[], MarketData>;
   getNewsData: ActorMethod<[], NewsData>;
+  getWalletBalance: ActorMethod<[string], number>;
+  recordMovePayment: ActorMethod<[string, string, string, number, string, string, string, string], {ok: string} | {err: string}>;
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

@@ -650,9 +650,11 @@ function CurrencyConverter({
 // ─── Main MarketsScreen ──────────────────────────────────────────────────────────────────────────
 interface MarketsScreenProps {
   isActive: boolean;
+  // ISSUE 14: callback to navigate to Alerts tab
+  onSetAlert?: () => void;
 }
 
-export function MarketsScreen({ isActive }: MarketsScreenProps) {
+export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
   const { actor, isFetching } = useActor();
   const [marketData, setMarketData] = useState<MarketData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -667,8 +669,21 @@ export function MarketsScreen({ isActive }: MarketsScreenProps) {
   const hasFetchedOnce = useRef(false);
   const marketDataRef = useRef<MarketData | null>(null);
   const historicalLoaded = useRef(false);
+  const prevActorRef = useRef<typeof actor>(actor);
 
   marketDataRef.current = marketData;
+
+  // ISSUE 12: Reset hasFetchedOnce when actor changes from null to truthy
+  // so that after login the real market data is fetched instead of staying mock
+  useEffect(() => {
+    const wasNull = !prevActorRef.current;
+    const isNowSet = !!actor;
+    prevActorRef.current = actor;
+    if (wasNull && isNowSet) {
+      hasFetchedOnce.current = false;
+      historicalLoaded.current = false;
+    }
+  }, [actor]);
 
   // Fetch real historical prices once per session for stocks + crypto
   const fetchHistoricalData = useCallback(async () => {
@@ -1075,6 +1090,7 @@ export function MarketsScreen({ isActive }: MarketsScreenProps) {
           changePercent={expandedItem.changePercent}
           sparkData={expandedItem.sparkData}
           priceUnit={expandedItem.priceUnit}
+          onSetAlert={onSetAlert}
         />
       )}
     </main>

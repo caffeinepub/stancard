@@ -621,11 +621,14 @@ function FundWalletModal({
   onClose,
   defaultCurrency,
   onSuccess,
+  displayName,
 }: {
   open: boolean;
   onClose: () => void;
   defaultCurrency: Currency;
   onSuccess: (amount: number, currency: Currency) => Promise<void>;
+  // ISSUE 9: use real display name in Flutterwave customer object
+  displayName?: string;
 }) {
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<Currency>(defaultCurrency);
@@ -652,7 +655,7 @@ function FundWalletModal({
       currency: currency,
       customer: {
         email: "user@stancard.space",
-        name: "Stancard User",
+        name: displayName || "Stancard User",
       },
       customizations: {
         title: "Stancard Wallet",
@@ -1968,8 +1971,9 @@ function ReceiveModal({
             </Select>
           </div>
 
-          {/* Amount field — shown for all currencies; hidden when NGN+not logged in */}
-          {!(currency === "NGN" && !isLoggedIn) && (
+          {/* Amount field + Confirm Receipt — ISSUE 3: only shown for NGN when logged in */}
+          {/* Non-NGN currencies show only a Close button (the coming-soon message is above) */}
+          {currency === "NGN" && isLoggedIn && (
             <>
               <div>
                 <Label
@@ -2068,6 +2072,27 @@ function ReceiveModal({
                 {submitting ? "Logging..." : "Confirm Receipt"}
               </Button>
             </>
+          )}
+
+          {/* ISSUE 3: Close button for non-NGN currencies (no fake confirm) */}
+          {currency !== "NGN" && (
+            <Button
+              data-ocid="pay.receive.close_button"
+              onClick={onClose}
+              className="w-full"
+              style={{
+                background: "transparent",
+                color: "#D4AF37",
+                fontWeight: 700,
+                fontSize: 15,
+                borderRadius: 12,
+                padding: "12px 0",
+                height: "auto",
+                border: "1px solid rgba(212,175,55,0.4)",
+              }}
+            >
+              Close
+            </Button>
           )}
         </div>
       </DialogContent>

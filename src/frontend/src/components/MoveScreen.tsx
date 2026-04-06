@@ -180,6 +180,8 @@ interface MoveScreenProps {
   identity: unknown;
   actor: (MoveActor & Record<string, unknown>) | null;
   onTrackShipment?: (code: string) => void;
+  // ISSUE 10: display name for Flutterwave customer
+  displayName?: string;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -1491,12 +1493,15 @@ function MovePaymentModal({
   actor,
   onSuccess,
   onClose,
+  displayName,
 }: {
   pkg: PackageType;
   route: RiderRoute;
   actor: MoveActor;
   onSuccess: () => void;
   onClose: () => void;
+  // ISSUE 10: use real display name for Flutterwave customer
+  displayName?: string;
 }) {
   const fee = MOVE_FEES[pkg.size] ?? 2000;
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
@@ -1606,7 +1611,7 @@ function MovePaymentModal({
       currency: "NGN",
       customer: {
         email: "user@stancard.app",
-        name: "Stancard User",
+        name: displayName || "Stancard User",
       },
       customizations: {
         title: "Stancard Move",
@@ -1972,12 +1977,14 @@ function MatchedRidersPanel({
   senderRequests,
   onRequestSent,
   onClose,
+  displayName,
 }: {
   pkg: PackageType;
   actor: MoveActor;
   senderRequests: DeliveryRequest[];
   onRequestSent: () => void;
   onClose: () => void;
+  displayName?: string;
 }) {
   const [riders, setRiders] = useState<RiderRoute[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2295,6 +2302,7 @@ function MatchedRidersPanel({
               onRequestSent();
             }}
             onClose={() => setPaymentRoute(null)}
+            displayName={displayName}
           />
         </AnimatePresence>
       )}
@@ -2308,6 +2316,7 @@ export function MoveScreen({
   identity,
   actor,
   onTrackShipment,
+  displayName,
 }: MoveScreenProps) {
   const isLoggedIn = identity !== null && identity !== undefined;
   const [role, setRole] = useState<Role>("rider");
@@ -3596,9 +3605,44 @@ export function MoveScreen({
                   {route.cargoSpace}
                 </span>
               </div>
-              <div style={{ color: "#6C6C6C", fontSize: 11 }}>
+              <div style={{ color: "#6C6C6C", fontSize: 11, marginBottom: 10 }}>
                 {route.vehicleType} · 📅 {route.travelDate}
               </div>
+              {/* ISSUE 16: Request Rider button on browse cards */}
+              <button
+                type="button"
+                data-ocid={`move.browse.request_button.${i + 1}`}
+                onClick={() => {
+                  if (!isLoggedIn) {
+                    toast.error("Sign in to send a delivery request");
+                    return;
+                  }
+                  if (senderPackages.length === 0) {
+                    toast.error(
+                      "Post a package first to send a delivery request",
+                    );
+                    return;
+                  }
+                  // Open payment modal for first available package + this route
+                  setMatchingPkg(senderPackages[0]);
+                  setRole("sender");
+                }}
+                style={{
+                  width: "100%",
+                  padding: "7px 0",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  border: "1px solid rgba(212,175,55,0.4)",
+                  background: "transparent",
+                  color: "#D4AF37",
+                  cursor: "pointer",
+                  letterSpacing: "0.04em",
+                  transition: "border-color 0.2s",
+                }}
+              >
+                Request Rider
+              </button>
             </motion.div>
           ))}
         </div>
@@ -3823,6 +3867,7 @@ export function MoveScreen({
               setMatchingPkg(null);
             }}
             onClose={() => setMatchingPkg(null)}
+            displayName={displayName}
           />
         )}
       </AnimatePresence>

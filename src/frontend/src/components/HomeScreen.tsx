@@ -60,34 +60,7 @@ const MOCK_ARTICLES: NewsArticle[] = [
   },
 ];
 
-// ─── Static data ────────────────────────────────────────────────────────────────────
-
-const activityItems = [
-  {
-    id: 1,
-    ticker: "AAPL",
-    name: "Apple Inc",
-    action: "Bought",
-    amount: "+$2,340.00",
-    positive: true,
-  },
-  {
-    id: 2,
-    ticker: "TSLA",
-    name: "Tesla Inc",
-    action: "Sold",
-    amount: "-$1,200.00",
-    positive: false,
-  },
-  {
-    id: 3,
-    ticker: "GLD",
-    name: "Gold ETF",
-    action: "Dividend",
-    amount: "+$180.00",
-    positive: true,
-  },
-];
+// ─── Static data (removed hardcoded activityItems — ISSUE 6) ────────────────────────────────
 
 // ─── Currency to USD conversion rates ────────────────────────────────────────
 const USD_RATES: Record<string, number> = {
@@ -104,9 +77,27 @@ function toUSD(amount: number, currency: string): number {
 }
 
 // ─── Actor type (minimal subset needed here) ─────────────────────────────────
+interface WalletTransaction {
+  id: string;
+  txType: string;
+  currency: string;
+  amount: number;
+  date: string;
+  desc: string;
+  status: string;
+}
 interface WalletActor {
   getWalletBalances: () => Promise<{ currency: string; amount: number }[]>;
+  getWalletTransactions?: () => Promise<WalletTransaction[]>;
 }
+
+const CURRENCY_SYMBOL_MAP: Record<string, string> = {
+  NGN: "₦",
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+  CNY: "¥",
+};
 
 // ─── Helper ─────────────────────────────────────────────────────────────────────────────
 function timeAgo(isoString: string): string {
@@ -205,7 +196,6 @@ export function HomeScreen({
   );
   const [selectedCategory, setSelectedCategory] = useState<string>("Global");
   const exploreRef = useRef<HTMLElement>(null);
-  const hasFetchedRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const articlesRef = useRef<NewsArticle[]>([]);
   articlesRef.current = articles;
@@ -216,27 +206,46 @@ export function HomeScreen({
   >([]);
   const [balancesLoading, setBalancesLoading] = useState(false);
 
-  // Fetch wallet balances when logged in and actor is available
+  // ISSUE 6: Recent transactions state
+  const [recentTxs, setRecentTxs] = useState<WalletTransaction[]>([]);
+  const [txLoading, setTxLoading] = useState(false);
+
+  // Fetch wallet balances and recent transactions when logged in and actor is available
   // biome-ignore lint/correctness/useExhaustiveDependencies: identity used to detect login change
   useEffect(() => {
     if (!isLoggedIn || !walletActor) {
       setWalletBalances([]);
+      setRecentTxs([]);
       return;
     }
     let cancelled = false;
     setBalancesLoading(true);
-    walletActor
-      .getWalletBalances()
-      .then((balances) => {
+    setTxLoading(true);
+    // Run both in parallel
+    Promise.all([
+      walletActor
+        .getWalletBalances()
+        .catch(() => [] as { currency: string; amount: number }[]),
+      walletActor.getWalletTransactions
+        ? (walletActor as any).getWalletTransactions().catch(() => [])
+        : Promise.resolve([]),
+    ])
+      .then(([balances, txs]) => {
         if (!cancelled) {
           setWalletBalances(balances);
+          setBalancesLoading(false);
+          const allTxs = txs as WalletTransaction[];
+          // Take last 3 entries (most recent at end of array)
+          setRecentTxs(allTxs.slice(-3).reverse());
+          setTxLoading(false);
         }
       })
       .catch((err) => {
-        console.error("Failed to load wallet balances for portfolio:", err);
-      })
-      .finally(() => {
-        if (!cancelled) setBalancesLoading(false);
+        console.error("Failed to load wallet data:", err);
+        if (!cancelled) {
+          setBalancesLoading(false);
+          setTxLoading(false);
+        }
       });
     return () => {
       cancelled = true;
@@ -270,18 +279,16 @@ export function HomeScreen({
     }
   }, [actor]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional one-shot fetch on actor ready
+  // ISSUE 11: removed hasFetchedRef one-shot guard so news refreshes on every mount
   useEffect(() => {
-    if (actor && !isFetching && !hasFetchedRef.current) {
-      hasFetchedRef.current = true;
+    if (actor && !isFetching) {
       fetchNews();
-    } else if (!actor && !isFetching && !hasFetchedRef.current) {
+    } else if (!actor && !isFetching) {
       setArticles(MOCK_ARTICLES);
       setIsNewsLoading(false);
     }
   }, [actor, isFetching, fetchNews]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: interval reset intentional on actor change
   useEffect(() => {
     if (!actor || isFetching) return;
     intervalRef.current = setInterval(() => {
@@ -384,13 +391,6 @@ export function HomeScreen({
               {hideBalance ? "••••••" : `$${formatUSD(usdBalance)}`}
             </span>
           </span>
-          <span
-            className="flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full"
-            style={{ background: "rgba(0,60,0,0.15)", color: "#1A4A00" }}
-          >
-            <ArrowUpRight size={11} />
-            +4.7% this month
-          </span>
         </div>
       </>
     );
@@ -450,7 +450,7 @@ export function HomeScreen({
         )}
       </section>
 
-      {/* Recent Activity */}
+      {/* Recent Activity — ISSUE 6: real canister transactions */}
       <section
         className="mb-6 animate-fade-in"
         style={{ animationDelay: "160ms" }}
@@ -466,51 +466,110 @@ export function HomeScreen({
           style={{ border: "1px solid #1A1A1A" }}
           data-ocid="activity.list"
         >
-          {activityItems.map((item, index) => (
+          {!isLoggedIn ? (
             <div
-              key={item.id}
-              className="flex items-center gap-3 px-4 py-3.5 activity-row transition-colors"
-              style={{
-                background: "#0F0F0F",
-                borderBottom:
-                  index < activityItems.length - 1
-                    ? "1px solid #1A1A1A"
-                    : "none",
-              }}
-              data-ocid={`activity.item.${index + 1}`}
+              className="flex items-center px-4 py-4"
+              style={{ background: "#0F0F0F" }}
+              data-ocid="activity.empty_state"
             >
-              <div
-                className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-                style={{ background: "#1E1E1E" }}
-              >
-                {item.positive ? (
-                  <ArrowUpRight size={14} style={{ color: "#D4AF37" }} />
-                ) : (
-                  <ArrowDownRight size={14} style={{ color: "#9A9A9A" }} />
-                )}
-              </div>
-
-              <div className="flex-1 min-w-0">
-                <p
-                  className="text-sm font-medium truncate"
-                  style={{ color: "#E8E8E8" }}
-                >
-                  {item.name}{" "}
-                  <span style={{ color: "#6C6C6C" }}>({item.ticker})</span>
-                </p>
-                <p className="text-xs mt-0.5" style={{ color: "#6C6C6C" }}>
-                  {item.action}
-                </p>
-              </div>
-
-              <span
-                className="text-sm font-semibold flex-shrink-0"
-                style={{ color: item.positive ? "#D4AF37" : "#9A9A9A" }}
-              >
-                {item.amount}
-              </span>
+              <p className="text-sm" style={{ color: "#4A4A4A" }}>
+                Sign in to view recent activity
+              </p>
             </div>
-          ))}
+          ) : txLoading ? (
+            <>
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-3 px-4 py-3.5 animate-pulse"
+                  style={{
+                    background: "#0F0F0F",
+                    borderBottom: i < 3 ? "1px solid #1A1A1A" : "none",
+                  }}
+                >
+                  <div
+                    className="w-9 h-9 rounded-full flex-shrink-0"
+                    style={{ background: "#1A1A1A" }}
+                  />
+                  <div className="flex-1">
+                    <div
+                      className="h-3 rounded mb-1.5"
+                      style={{ background: "#1A1A1A", width: "60%" }}
+                    />
+                    <div
+                      className="h-2.5 rounded"
+                      style={{ background: "#1A1A1A", width: "35%" }}
+                    />
+                  </div>
+                  <div
+                    className="h-3 rounded flex-shrink-0"
+                    style={{ background: "#1A1A1A", width: "60px" }}
+                  />
+                </div>
+              ))}
+            </>
+          ) : recentTxs.length === 0 ? (
+            <div
+              className="flex items-center px-4 py-4"
+              style={{ background: "#0F0F0F" }}
+              data-ocid="activity.empty_state"
+            >
+              <p className="text-sm" style={{ color: "#4A4A4A" }}>
+                No transactions yet
+              </p>
+            </div>
+          ) : (
+            recentTxs.map((tx, index) => {
+              const isReceive = tx.txType === "receive" || tx.txType === "fund";
+              const sym = CURRENCY_SYMBOL_MAP[tx.currency] ?? tx.currency;
+              return (
+                <div
+                  key={tx.id}
+                  className="flex items-center gap-3 px-4 py-3.5 activity-row transition-colors"
+                  style={{
+                    background: "#0F0F0F",
+                    borderBottom:
+                      index < recentTxs.length - 1
+                        ? "1px solid #1A1A1A"
+                        : "none",
+                  }}
+                  data-ocid={`activity.item.${index + 1}`}
+                >
+                  <div
+                    className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+                    style={{ background: "#1E1E1E" }}
+                  >
+                    {isReceive ? (
+                      <ArrowUpRight size={14} style={{ color: "#D4AF37" }} />
+                    ) : (
+                      <ArrowDownRight size={14} style={{ color: "#9A9A9A" }} />
+                    )}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className="text-sm font-medium truncate"
+                      style={{ color: "#E8E8E8" }}
+                    >
+                      {tx.desc || tx.txType}
+                    </p>
+                    <p className="text-xs mt-0.5" style={{ color: "#6C6C6C" }}>
+                      {tx.txType}
+                    </p>
+                  </div>
+
+                  <span
+                    className="text-sm font-semibold flex-shrink-0"
+                    style={{ color: isReceive ? "#D4AF37" : "#9A9A9A" }}
+                  >
+                    {isReceive ? "+" : "-"}
+                    {sym}
+                    {tx.amount.toLocaleString()}
+                  </span>
+                </div>
+              );
+            })
+          )}
         </div>
       </section>
 
@@ -530,7 +589,7 @@ export function HomeScreen({
           style={{ background: "#0F0F0F", border: "1px solid #1A1A1A" }}
           data-ocid="insights.panel"
         >
-          <DonutChart />
+          <DonutChart balances={walletBalances} isLoggedIn={isLoggedIn} />
         </div>
       </section>
 

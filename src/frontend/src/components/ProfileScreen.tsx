@@ -455,11 +455,11 @@ export function ProfileScreen({
             style={{
               marginTop: 10,
               fontSize: 11,
-              color: "#5A5A5A",
+              color: "#6C6C6C",
               letterSpacing: "0.02em",
             }}
           >
-            More languages coming soon.
+            Preferences saved — full translation coming soon.
           </p>
         </div>
 

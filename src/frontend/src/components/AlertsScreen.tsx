@@ -20,6 +20,7 @@ import {
   BellOff,
   Play,
   Plus,
+  RefreshCw,
   Trash2,
   TrendingDown,
   TrendingUp,
@@ -95,9 +96,13 @@ interface FullBackend {
 export interface AlertsScreenProps {
   isActive: boolean;
   onAlertTriggered: (alert: Alert) => void;
+  // ISSUE 2: identity prop to detect logged-out state
+  identity?: unknown;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
+
+const FETCH_TIMEOUT_MS = 8_000;
 
 const STOCK_SYMBOLS = [
   "AAPL",
@@ -112,6 +117,7 @@ const STOCK_SYMBOLS = [
   "TSM",
 ];
 const CRYPTO_SYMBOLS = ["BTC", "ETH", "BNB"];
+const FOREX_PAIRS = ["USD/NGN", "EUR/NGN", "GBP/NGN", "CNY/NGN", "JPY/NGN"];
 
 const GOLD_GRADIENT =
   "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)";
@@ -121,6 +127,17 @@ const VIDEO_SKELETON_KEYS = ["vs-1", "vs-2", "vs-3", "vs-4", "vs-5", "vs-6"];
 const ALERT_SKELETON_KEYS = ["as-1", "as-2", "as-3"];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+/**
+ * Races a promise against an 8-second timeout.
+ * On timeout or error, resolves to the provided fallback value instead of throwing.
+ */
+function withTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
+  const timeout = new Promise<T>((resolve) =>
+    setTimeout(() => resolve(fallback), FETCH_TIMEOUT_MS),
+  );
+  return Promise.race([promise.catch(() => fallback), timeout]);
+}
 
 function formatPrice(price: number, symbol: string): string {
   if (symbol === "BTC")
@@ -160,22 +177,38 @@ function CreateAlertModal({
 }) {
   const { actor: rawActor } = useActor();
   const actor = rawActor as unknown as FullBackend | null;
-  const [assetType, setAssetType] = useState<"stock" | "crypto">("stock");
+  const [assetType, setAssetType] = useState<"stock" | "crypto" | "currency">(
+    "stock",
+  );
   const [symbol, setSymbol] = useState("AAPL");
   const [condition, setCondition] = useState<"above" | "below">("above");
   const [targetPrice, setTargetPrice] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const symbols = assetType === "stock" ? STOCK_SYMBOLS : CRYPTO_SYMBOLS;
+  const symbols =
+    assetType === "stock"
+      ? STOCK_SYMBOLS
+      : assetType === "crypto"
+        ? CRYPTO_SYMBOLS
+        : FOREX_PAIRS;
 
   // Reset symbol when asset type changes
   useEffect(() => {
-    setSymbol(assetType === "stock" ? "AAPL" : "BTC");
+    setSymbol(
+      assetType === "stock"
+        ? "AAPL"
+        : assetType === "crypto"
+          ? "BTC"
+          : "USD/NGN",
+    );
   }, [assetType]);
 
   async function handleSubmit() {
-    if (!actor) return;
+    if (!actor) {
+      setError("You must be signed in to create alerts.");
+      return;
+    }
     const parsed = Number.parseFloat(targetPrice);
     if (!targetPrice || Number.isNaN(parsed) || parsed <= 0) {
       setError("Please enter a valid target price.");
@@ -247,7 +280,7 @@ function CreateAlertModal({
               ASSET TYPE
             </Label>
             <div className="flex gap-2 mt-2">
-              {(["stock", "crypto"] as const).map((type) => (
+              {(["stock", "crypto", "currency"] as const).map((type) => (
                 <button
                   type="button"
                   key={type}
@@ -257,7 +290,7 @@ function CreateAlertModal({
                     flex: 1,
                     padding: "8px 0",
                     borderRadius: 10,
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: 600,
                     letterSpacing: "0.04em",
                     border: assetType === type ? "none" : "1px solid #2A2A2A",
@@ -268,7 +301,11 @@ function CreateAlertModal({
                     textTransform: "capitalize",
                   }}
                 >
-                  {type === "stock" ? "📈 Stock" : "₿ Crypto"}
+                  {type === "stock"
+                    ? "📈 Stock"
+                    : type === "crypto"
+                      ? "₿ Crypto"
+                      : "💱 Currency"}
                 </button>
               ))}
             </div>
@@ -827,11 +864,75 @@ function VideoPlayerModal({
   );
 }
 
+// ── Full Empty State ───────────────────────────────────────────────────────────
+
+function FullEmptyState({ onRefresh }: { onRefresh: () => void }) {
+  return (
+    <div
+      data-ocid="alerts.full.empty_state"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "60px 24px",
+        textAlign: "center",
+      }}
+    >
+      <BellOff size={48} color="#3A3A3A" style={{ marginBottom: 16 }} />
+      <div
+        style={{
+          fontSize: 16,
+          fontWeight: 700,
+          color: "#5A5A5A",
+          marginBottom: 8,
+        }}
+      >
+        Nothing to show yet
+      </div>
+      <div
+        style={{
+          fontSize: 13,
+          color: "#3A3A3A",
+          lineHeight: 1.6,
+          marginBottom: 24,
+          maxWidth: 260,
+        }}
+      >
+        Sign in and set your first alert, or tap Refresh to try loading market
+        data again.
+      </div>
+      <button
+        type="button"
+        onClick={onRefresh}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          background: GOLD_GRADIENT,
+          border: "none",
+          borderRadius: 12,
+          padding: "10px 22px",
+          fontSize: 14,
+          fontWeight: 700,
+          color: "rgba(0,0,0,0.85)",
+          cursor: "pointer",
+          boxShadow: "0 4px 16px rgba(212,175,55,0.3)",
+        }}
+      >
+        <RefreshCw size={15} />
+        Refresh
+      </button>
+    </div>
+  );
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export function AlertsScreen({
   isActive,
   onAlertTriggered,
+  identity: _identity,
 }: AlertsScreenProps) {
   const { actor: rawActor } = useActor();
   const actor = rawActor as unknown as FullBackend | null;
@@ -844,6 +945,8 @@ export function AlertsScreen({
   const [loadingVideos, setLoadingVideos] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState<YouTubeVideo | null>(null);
+  // Tracks whether the initial load has been attempted at least once
+  const loadAttemptedRef = useRef(false);
 
   // Keep a ref to latest alerts for the interval callback
   const alertsRef = useRef<Alert[]>([]);
@@ -854,27 +957,19 @@ export function AlertsScreen({
 
   // ── Data fetching ────────────────────────────────────────────────────────────
 
-  const fetchMarketData = useCallback(async () => {
-    if (!actor) return;
-    try {
-      const data = await actor.getMarketData();
-      setMarketData(data);
-    } catch {
-      // silently fail
-    } finally {
-      setLoadingMarket(false);
-    }
-  }, [actor]);
-
   const fetchVideos = useCallback(
     async (query?: string) => {
-      if (!actor) return;
+      if (!actor) {
+        setLoadingVideos(false);
+        return;
+      }
       const q = query ?? currentQueryRef.current;
       try {
-        const data = await actor.getYouTubeVideosByQuery(q);
+        const data = await withTimeout(
+          actor.getYouTubeVideosByQuery(q),
+          [] as YouTubeVideo[],
+        );
         setVideos(data.slice(0, 6));
-      } catch {
-        // silently fail
       } finally {
         setLoadingVideos(false);
       }
@@ -882,22 +977,58 @@ export function AlertsScreen({
     [actor],
   );
 
-  // Initial load when tab becomes active — fetch alerts first, derive query, then fetch videos
-  useEffect(() => {
-    if (!isActive || !actor) return;
-    const load = async () => {
-      const [alertData] = await Promise.all([
-        actor.getAlerts().catch(() => [] as Alert[]),
-        fetchMarketData(),
-      ]);
-      setAlerts(alertData);
+  // Core load function — called on initial tab open and on manual refresh
+  const loadAll = useCallback(async () => {
+    setLoadingAlerts(true);
+    setLoadingMarket(true);
+    setLoadingVideos(true);
+
+    // If no actor (logged out), stop spinners immediately — no canister calls
+    if (!actor) {
       setLoadingAlerts(false);
-      const q = deriveYouTubeQuery(alertData);
-      currentQueryRef.current = q;
-      await fetchVideos(q);
-    };
-    load();
-  }, [isActive, actor, fetchMarketData, fetchVideos]);
+      setLoadingMarket(false);
+      setLoadingVideos(false);
+      return;
+    }
+
+    // Fetch alerts and market data in parallel, each with an 8s timeout
+    const [alertData, marketResult] = await Promise.all([
+      withTimeout(actor.getAlerts(), [] as Alert[]),
+      withTimeout(actor.getMarketData(), null as MarketData | null),
+    ]);
+
+    setAlerts(alertData);
+    setLoadingAlerts(false);
+
+    if (marketResult) setMarketData(marketResult);
+    setLoadingMarket(false);
+
+    // Derive YouTube query from loaded alerts, then fetch videos
+    const q = deriveYouTubeQuery(alertData);
+    currentQueryRef.current = q;
+
+    const videoData = await withTimeout(
+      actor.getYouTubeVideosByQuery(q),
+      [] as YouTubeVideo[],
+    );
+    setVideos(videoData.slice(0, 6));
+    setLoadingVideos(false);
+  }, [actor]);
+
+  // Initial load when tab becomes active — run once per actor instance
+  // biome-ignore lint/correctness/useExhaustiveDependencies: actor reset is intentional
+  useEffect(() => {
+    if (!isActive) return;
+    // Re-run whenever actor changes or tab becomes active
+    loadAttemptedRef.current = false;
+  }, [actor, isActive]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    if (loadAttemptedRef.current) return;
+    loadAttemptedRef.current = true;
+    loadAll();
+  }, [isActive, loadAll]);
 
   // ── Alert checking logic ──────────────────────────────────────────────────────
 
@@ -933,7 +1064,7 @@ export function AlertsScreen({
 
         if (shouldTrigger) {
           try {
-            await actor.markAlertTriggered(alert.id);
+            await withTimeout(actor.markAlertTriggered(alert.id), false);
             setAlerts((prev) =>
               prev.map((a) =>
                 a.id === alert.id ? { ...a, isTriggered: true } : a,
@@ -955,9 +1086,14 @@ export function AlertsScreen({
 
     const interval = setInterval(async () => {
       try {
-        const freshMarket = await actor.getMarketData();
-        setMarketData(freshMarket);
-        await checkAlerts(freshMarket);
+        const freshMarket = await withTimeout(
+          actor.getMarketData(),
+          null as MarketData | null,
+        );
+        if (freshMarket) {
+          setMarketData(freshMarket);
+          await checkAlerts(freshMarket);
+        }
       } catch {
         // silently fail
       }
@@ -1020,6 +1156,15 @@ export function AlertsScreen({
         .slice(0, 5)
     : [];
 
+  // Determine if everything finished loading and nothing came back
+  const allLoaded = !loadingAlerts && !loadingMarket && !loadingVideos;
+  const nothingLoaded =
+    allLoaded &&
+    alerts.length === 0 &&
+    !marketData &&
+    videos.length === 0 &&
+    !actor;
+
   // ── Render ────────────────────────────────────────────────────────────────────
 
   const alertsSection = (
@@ -1067,8 +1212,14 @@ export function AlertsScreen({
             No alerts set yet
           </div>
           <div style={{ fontSize: 13, color: "#3A3A3A", lineHeight: 1.5 }}>
-            Tap <span style={{ color: "#D4AF37" }}>+</span> to create your first
-            price alert
+            {actor ? (
+              <>
+                Tap <span style={{ color: "#D4AF37" }}>+</span> to create your
+                first price alert
+              </>
+            ) : (
+              "Sign in to create price alerts"
+            )}
           </div>
         </div>
       ) : (
@@ -1286,7 +1437,15 @@ export function AlertsScreen({
           <button
             type="button"
             data-ocid="alerts.create.open_modal_button"
-            onClick={() => setCreateOpen(true)}
+            onClick={() => {
+              if (!actor) {
+                import("sonner").then(({ toast }) =>
+                  toast.error("Sign in to create alerts"),
+                );
+                return;
+              }
+              setCreateOpen(true);
+            }}
             style={{
               width: 40,
               height: 40,
@@ -1306,17 +1465,24 @@ export function AlertsScreen({
           </button>
         </div>
 
-        {/* Mobile: single column */}
-        <div className="lg:hidden">
-          {alertsSection}
-          {pulseAndVideosSection}
-        </div>
+        {/* ── Full empty state when logged out and nothing loaded ── */}
+        {nothingLoaded ? (
+          <FullEmptyState onRefresh={loadAll} />
+        ) : (
+          <>
+            {/* Mobile: single column */}
+            <div className="lg:hidden">
+              {alertsSection}
+              {pulseAndVideosSection}
+            </div>
 
-        {/* Desktop: two-column grid */}
-        <div className="hidden lg:grid lg:grid-cols-[1fr_400px] lg:gap-8 lg:items-start">
-          <div>{alertsSection}</div>
-          <div>{pulseAndVideosSection}</div>
-        </div>
+            {/* Desktop: two-column grid */}
+            <div className="hidden lg:grid lg:grid-cols-[1fr_400px] lg:gap-8 lg:items-start">
+              <div>{alertsSection}</div>
+              <div>{pulseAndVideosSection}</div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* ── Modals ── */}

@@ -372,6 +372,8 @@ export function TrackingPage({
   const [loading, setLoading] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [searched, setSearched] = useState(false);
+  // ISSUE 4: separate state for actor-not-ready vs genuine not-found
+  const [actorNotReady, setActorNotReady] = useState(false);
 
   // Auto-fetch if code was pre-supplied
   useEffect(() => {
@@ -383,10 +385,13 @@ export function TrackingPage({
 
   async function fetchTracking(code: string) {
     if (!actor) {
-      setNotFound(true);
+      // ISSUE 4: actor is still connecting — don't show "not found"
+      setActorNotReady(true);
       setSearched(true);
+      setLoading(false);
       return;
     }
+    setActorNotReady(false);
     setLoading(true);
     setNotFound(false);
     setTracking(null);
@@ -620,6 +625,73 @@ export function TrackingPage({
               Looking up shipment…
             </p>
           </div>
+        )}
+
+        {/* Actor not ready — ISSUE 4 */}
+        {!loading && actorNotReady && searched && !notFound && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            style={{
+              background: "#111",
+              border: "1px solid #1A1A1A",
+              borderRadius: 14,
+              padding: 32,
+              textAlign: "center",
+            }}
+            data-ocid="move.tracking.connecting_state"
+          >
+            <div
+              style={{
+                width: 52,
+                height: 52,
+                borderRadius: "50%",
+                background: "rgba(212,175,55,0.08)",
+                border: "1px solid rgba(212,175,55,0.25)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                margin: "0 auto 16px",
+              }}
+            >
+              <Package size={24} style={{ color: "#D4AF37" }} />
+            </div>
+            <h3
+              style={{
+                color: "#E8E8E8",
+                fontSize: 16,
+                fontWeight: 700,
+                marginBottom: 8,
+              }}
+            >
+              Still Connecting
+            </h3>
+            <p style={{ color: "#6C6C6C", fontSize: 13, marginBottom: 20 }}>
+              The app is still connecting. Please wait a moment and try again.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setActorNotReady(false);
+                setSearched(false);
+                const code = activeCode || inputCode.trim().toUpperCase();
+                if (code) void fetchTracking(code);
+              }}
+              style={{
+                background: "rgba(212,175,55,0.1)",
+                border: "1px solid rgba(212,175,55,0.2)",
+                borderRadius: 8,
+                color: "#D4AF37",
+                fontWeight: 600,
+                fontSize: 13,
+                padding: "9px 18px",
+                cursor: "pointer",
+              }}
+              data-ocid="move.tracking.retry.button"
+            >
+              Try Again
+            </button>
+          </motion.div>
         )}
 
         {/* Not found */}

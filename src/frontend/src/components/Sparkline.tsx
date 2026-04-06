@@ -336,6 +336,8 @@ export interface ExpandedChartModalProps {
   changePercent: number;
   sparkData: number[];
   priceUnit?: string;
+  // ISSUE 14: navigate to alerts tab
+  onSetAlert?: () => void;
 }
 
 function OverlayBackdrop({ onClose }: { onClose: () => void }) {
@@ -364,6 +366,7 @@ export function ExpandedChartModal({
   changePercent,
   sparkData,
   priceUnit,
+  onSetAlert,
 }: ExpandedChartModalProps) {
   useEffect(() => {
     if (isOpen) {
@@ -622,6 +625,33 @@ export function ExpandedChartModal({
           symbol={symbol}
           priceUnit={priceUnit}
         />
+
+        {/* ISSUE 14: Set Alert button */}
+        {onSetAlert && (
+          <div style={{ marginTop: 16, textAlign: "right" }}>
+            <button
+              type="button"
+              onClick={() => {
+                onSetAlert();
+                onClose();
+              }}
+              style={{
+                background: "transparent",
+                border: "1px solid #D4AF37",
+                borderRadius: 8,
+                color: "#D4AF37",
+                fontSize: 12,
+                fontWeight: 600,
+                padding: "7px 14px",
+                cursor: "pointer",
+                letterSpacing: "0.04em",
+              }}
+              data-ocid="markets.expanded.set_alert_button"
+            >
+              🔔 Set Alert
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

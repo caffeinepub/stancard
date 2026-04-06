@@ -4,6 +4,8 @@ interface AppHeaderProps {
   displayName?: string;
   isLoggedIn?: boolean;
   onAvatarClick?: () => void;
+  // ISSUE 1: Add onBellClick prop
+  onBellClick?: () => void;
 }
 
 function getInitials(name: string): string {
@@ -17,6 +19,7 @@ export function AppHeader({
   displayName,
   isLoggedIn,
   onAvatarClick,
+  onBellClick,
 }: AppHeaderProps) {
   const initials = displayName ? getInitials(displayName) : "";
 
@@ -50,7 +53,7 @@ export function AppHeader({
 
       {/* Right side: bell + avatar (desktop) or just bell (mobile) */}
       <div className="flex items-center gap-3">
-        {/* Notification Bell */}
+        {/* Notification Bell — ISSUE 1: wire onClick */}
         <button
           type="button"
           className="flex items-center justify-center w-9 h-9 rounded-full transition-colors"
@@ -61,6 +64,7 @@ export function AppHeader({
           }}
           aria-label="Notifications"
           data-ocid="header.bell_button"
+          onClick={onBellClick}
         >
           <Bell size={16} strokeWidth={1.75} />
         </button>

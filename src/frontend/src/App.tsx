@@ -431,7 +431,10 @@ export default function App() {
         />
       )}
       {activeTab === "markets" && (
-        <MarketsScreen isActive={activeTab === "markets"} />
+        <MarketsScreen
+          isActive={activeTab === "markets"}
+          onSetAlert={() => setActiveTab("alerts")}
+        />
       )}
       {activeTab === "pay" && (
         <PayScreen
@@ -447,6 +450,7 @@ export default function App() {
         <AlertsScreen
           isActive={activeTab === "alerts"}
           onAlertTriggered={handleAlertTriggered}
+          identity={identity}
         />
       )}
       {activeTab === "move" && (
@@ -454,6 +458,7 @@ export default function App() {
           identity={identity}
           actor={actor as any}
           onTrackShipment={handleTrackShipment}
+          displayName={displayName}
         />
       )}
       {activeTab === "profile" && (
@@ -492,6 +497,7 @@ export default function App() {
         displayName={displayName}
         isLoggedIn={!!identity}
         onAvatarClick={() => setActiveTab("profile")}
+        onBellClick={() => setActiveTab("alerts")}
       />
 
       {/* Desktop Sidebar - only visible on lg+ */}

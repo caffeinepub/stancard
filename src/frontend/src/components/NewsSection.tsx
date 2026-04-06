@@ -325,26 +325,30 @@ export function ArticlePreviewModal({
                 </p>
               )}
 
-              {/* Read Full Article button */}
-              {hasValidUrl && (
-                <button
-                  type="button"
-                  onClick={handleReadFullArticle}
-                  className="w-full mt-5 transition-opacity active:opacity-80"
-                  style={{
-                    background: "#D4AF37",
-                    color: "#111111",
-                    fontWeight: 700,
-                    borderRadius: "12px",
-                    padding: "14px",
-                    fontSize: "14px",
-                    letterSpacing: "0.02em",
-                  }}
-                  data-ocid="news.read_article.button"
-                >
-                  Read Full Article
-                </button>
-              )}
+              {/* Read Full Article button — ISSUE 5: always render, disable when no valid URL */}
+              <button
+                type="button"
+                onClick={hasValidUrl ? handleReadFullArticle : undefined}
+                disabled={!hasValidUrl}
+                className="w-full mt-5 transition-opacity active:opacity-80"
+                style={{
+                  background: hasValidUrl ? "#D4AF37" : "transparent",
+                  color: hasValidUrl ? "#111111" : "#5A5A5A",
+                  fontWeight: 700,
+                  borderRadius: "12px",
+                  padding: "14px",
+                  fontSize: "14px",
+                  letterSpacing: "0.02em",
+                  border: hasValidUrl ? "none" : "1px solid #3A3A3A",
+                  cursor: hasValidUrl ? "pointer" : "not-allowed",
+                  opacity: hasValidUrl ? 1 : 0.6,
+                }}
+                data-ocid="news.read_article.button"
+              >
+                {hasValidUrl
+                  ? "Read Full Article"
+                  : "Article link not available"}
+              </button>
             </div>
           </motion.div>
         </motion.div>

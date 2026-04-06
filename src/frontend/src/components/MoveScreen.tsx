@@ -361,6 +361,221 @@ function GeoSpinner() {
   );
 }
 
+// ─── Location Search Input ───────────────────────────────────────────────────
+
+interface NominatimItem {
+  place_id: number;
+  display_name: string;
+  lat: string;
+  lon: string;
+  address?: {
+    city?: string;
+    town?: string;
+    village?: string;
+    county?: string;
+    country?: string;
+  };
+}
+
+interface LocationSearchInputProps {
+  value: string;
+  onChange: (text: string) => void;
+  onSelectResult?: (
+    displayName: string,
+    coords: { lat: number; lng: number },
+    address: { city?: string; country?: string },
+  ) => void;
+  placeholder?: string;
+  required?: boolean;
+  style?: React.CSSProperties;
+  "data-ocid"?: string;
+}
+
+function LocationSearchInput({
+  value,
+  onChange,
+  onSelectResult,
+  placeholder,
+  required,
+  style,
+  "data-ocid": dataOcid,
+}: LocationSearchInputProps) {
+  const [results, setResults] = useState<NominatimItem[]>([]);
+  const [open, setOpen] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [noResults, setNoResults] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleOutsideClick(e: MouseEvent) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  function handleInput(e: React.ChangeEvent<HTMLInputElement>) {
+    const text = e.target.value;
+    onChange(text);
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    if (text.length < 3) {
+      setOpen(false);
+      setResults([]);
+      setNoResults(false);
+      return;
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      setOpen(true);
+      setNoResults(false);
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&limit=5&addressdetails=1`;
+        const res = await fetch(url, { headers: { "Accept-Language": "en" } });
+        const data: NominatimItem[] = await res.json();
+        setResults(data);
+        setNoResults(data.length === 0);
+      } catch {
+        setResults([]);
+        setNoResults(true);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Escape") {
+      setOpen(false);
+    }
+  }
+
+  function handleSelect(item: NominatimItem) {
+    const city =
+      item.address?.city ||
+      item.address?.town ||
+      item.address?.village ||
+      item.address?.county ||
+      "";
+    const country = item.address?.country || "";
+    onChange(item.display_name);
+    onSelectResult?.(
+      item.display_name,
+      { lat: Number.parseFloat(item.lat), lng: Number.parseFloat(item.lon) },
+      { city, country },
+    );
+    setOpen(false);
+    setResults([]);
+  }
+
+  return (
+    <div ref={containerRef} style={{ position: "relative" }}>
+      <div style={{ position: "relative" }}>
+        <input
+          type="text"
+          value={value}
+          onChange={handleInput}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          required={required}
+          style={{
+            ...INPUT_STYLE,
+            paddingRight: searching ? 36 : 12,
+            ...(style || {}),
+          }}
+          data-ocid={dataOcid}
+          autoComplete="off"
+        />
+        {searching && (
+          <span
+            style={{
+              position: "absolute",
+              right: 10,
+              top: "50%",
+              transform: "translateY(-50%)",
+            }}
+          >
+            <GeoSpinner />
+          </span>
+        )}
+      </div>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            left: 0,
+            right: 0,
+            background: "#0D0D0D",
+            border: "1px solid #2A2A2A",
+            borderRadius: 8,
+            maxHeight: 220,
+            overflowY: "auto",
+            zIndex: 500,
+          }}
+        >
+          {noResults ? (
+            <div
+              style={{
+                padding: "10px 12px",
+                fontSize: 13,
+                color: "#6C6C6C",
+              }}
+            >
+              No locations found
+            </div>
+          ) : (
+            results.map((item) => (
+              <button
+                key={item.place_id}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  handleSelect(item);
+                }}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "10px 12px",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  color: "#E8E8E8",
+                  background: "transparent",
+                  border: "none",
+                  borderBottom: "1px solid #1A1A1A",
+                  transition: "background 0.1s",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background =
+                    "rgba(212,175,55,0.1)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background =
+                    "transparent";
+                }}
+              >
+                {item.display_name.length > 60
+                  ? `${item.display_name.slice(0, 60)}…`
+                  : item.display_name}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Register Route Modal ────────────────────────────────────────────────────
 
 interface RouteForm {
@@ -661,7 +876,7 @@ function RouteModal({
             {/* Departure */}
             <div>
               <label
-                htmlFor="rm-dep-city"
+                htmlFor="rm-dep-city-search"
                 style={{
                   color: "#9A9A9A",
                   fontSize: 12,
@@ -669,39 +884,34 @@ function RouteModal({
                   marginBottom: 6,
                 }}
               >
-                Departure
+                Departure City
               </label>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 10,
+              <LocationSearchInput
+                value={form.departureCity}
+                onChange={(text) => field("departureCity", text)}
+                onSelectResult={(_displayName, _coords, address) => {
+                  if (address.city) field("departureCity", address.city);
+                  if (address.country)
+                    field("departureCountry", address.country);
                 }}
-              >
-                <input
-                  id="rm-dep-city"
-                  placeholder="City"
-                  value={form.departureCity}
-                  onChange={(e) => field("departureCity", e.target.value)}
-                  required
-                  style={INPUT_STYLE}
-                  data-ocid="move.route_modal.departure_city.input"
-                />
-                <input
-                  placeholder="Country"
-                  value={form.departureCountry}
-                  onChange={(e) => field("departureCountry", e.target.value)}
-                  required
-                  style={INPUT_STYLE}
-                  data-ocid="move.route_modal.departure_country.input"
-                />
-              </div>
+                placeholder="Search departure city…"
+                required
+                data-ocid="move.route_modal.departure_city.input"
+              />
+              <input
+                placeholder="Country (auto-filled or type manually)"
+                value={form.departureCountry}
+                onChange={(e) => field("departureCountry", e.target.value)}
+                required
+                style={{ ...INPUT_STYLE, marginTop: 8 }}
+                data-ocid="move.route_modal.departure_country.input"
+              />
             </div>
 
             {/* Destination */}
             <div>
               <label
-                htmlFor="rm-dest-city"
+                htmlFor="rm-dest-city-search"
                 style={{
                   color: "#9A9A9A",
                   fontSize: 12,
@@ -709,33 +919,28 @@ function RouteModal({
                   marginBottom: 6,
                 }}
               >
-                Destination
+                Destination City
               </label>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 10,
+              <LocationSearchInput
+                value={form.destinationCity}
+                onChange={(text) => field("destinationCity", text)}
+                onSelectResult={(_displayName, _coords, address) => {
+                  if (address.city) field("destinationCity", address.city);
+                  if (address.country)
+                    field("destinationCountry", address.country);
                 }}
-              >
-                <input
-                  id="rm-dest-city"
-                  placeholder="City"
-                  value={form.destinationCity}
-                  onChange={(e) => field("destinationCity", e.target.value)}
-                  required
-                  style={INPUT_STYLE}
-                  data-ocid="move.route_modal.destination_city.input"
-                />
-                <input
-                  placeholder="Country"
-                  value={form.destinationCountry}
-                  onChange={(e) => field("destinationCountry", e.target.value)}
-                  required
-                  style={INPUT_STYLE}
-                  data-ocid="move.route_modal.destination_country.input"
-                />
-              </div>
+                placeholder="Search destination city…"
+                required
+                data-ocid="move.route_modal.destination_city.input"
+              />
+              <input
+                placeholder="Country (auto-filled or type manually)"
+                value={form.destinationCountry}
+                onChange={(e) => field("destinationCountry", e.target.value)}
+                required
+                style={{ ...INPUT_STYLE, marginTop: 8 }}
+                data-ocid="move.route_modal.destination_country.input"
+              />
             </div>
 
             {/* Travel Date */}
@@ -924,15 +1129,19 @@ function RouteModal({
                     gap: 6,
                   }}
                 >
-                  <input
-                    placeholder="City"
+                  <LocationSearchInput
                     value={form.departureCity}
-                    onChange={(e) => field("departureCity", e.target.value)}
-                    style={{
-                      ...INPUT_STYLE,
-                      fontSize: 12,
-                      padding: "8px 10px",
+                    onChange={(text) => field("departureCity", text)}
+                    onSelectResult={(_displayName, coords, address) => {
+                      if (address.city) field("departureCity", address.city);
+                      if (address.country)
+                        field("departureCountry", address.country);
+                      setDepPin({ lat: coords.lat, lng: coords.lng });
+                      if (!destPin) setPinStep("destination");
+                      else setPinStep("done");
                     }}
+                    placeholder="Search departure city…"
+                    style={{ fontSize: 12, padding: "8px 10px" }}
                     data-ocid="move.route_modal.map_departure_city.input"
                   />
                   <input
@@ -980,15 +1189,18 @@ function RouteModal({
                     gap: 6,
                   }}
                 >
-                  <input
-                    placeholder="City"
+                  <LocationSearchInput
                     value={form.destinationCity}
-                    onChange={(e) => field("destinationCity", e.target.value)}
-                    style={{
-                      ...INPUT_STYLE,
-                      fontSize: 12,
-                      padding: "8px 10px",
+                    onChange={(text) => field("destinationCity", text)}
+                    onSelectResult={(_displayName, coords, address) => {
+                      if (address.city) field("destinationCity", address.city);
+                      if (address.country)
+                        field("destinationCountry", address.country);
+                      setDestPin({ lat: coords.lat, lng: coords.lng });
+                      setPinStep("done");
                     }}
+                    placeholder="Search destination city…"
+                    style={{ fontSize: 12, padding: "8px 10px" }}
                     data-ocid="move.route_modal.map_destination_city.input"
                   />
                   <input
@@ -1061,24 +1273,121 @@ function PackageModal({
   onClose,
   onSubmit,
   isLoading,
+  actorAvailable,
 }: {
   open: boolean;
   onClose: () => void;
   onSubmit: (form: PackageForm) => Promise<void>;
   isLoading: boolean;
+  actorAvailable: boolean;
 }) {
   const [form, setForm] = useState<PackageForm>(EMPTY_PKG_FORM);
+  const [step, setStep] = useState<1 | 2>(1);
+  const [pickupPin, setPickupPin] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+  const [destPin, setDestPin] = useState<{ lat: number; lng: number } | null>(
+    null,
+  );
+  const [pinStep, setPinStep] = useState<"pickup" | "destination" | "done">(
+    "pickup",
+  );
+  const [geocodingPickup, setGeocodingPickup] = useState(false);
+  const [geocodingDest, setGeocodingDest] = useState(false);
+  const [actorError, setActorError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) setForm(EMPTY_PKG_FORM);
+    if (open) {
+      setForm(EMPTY_PKG_FORM);
+      setStep(1);
+      setPickupPin(null);
+      setDestPin(null);
+      setPinStep("pickup");
+      setGeocodingPickup(false);
+      setGeocodingDest(false);
+      setActorError(null);
+    }
   }, [open]);
 
   function field(key: keyof PackageForm, value: string | number) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleMapClick(lat: number, lng: number) {
+    if (pinStep === "pickup") {
+      setPickupPin({ lat, lng });
+      setPinStep("destination");
+      setGeocodingPickup(true);
+      const result = await reverseGeocode(lat, lng);
+      setGeocodingPickup(false);
+      if (result) {
+        setForm((prev) => ({
+          ...prev,
+          pickupLocation: result.city
+            ? `${result.city}, ${result.country}`
+            : prev.pickupLocation,
+        }));
+      }
+    } else if (pinStep === "destination") {
+      setDestPin({ lat, lng });
+      setPinStep("done");
+      setGeocodingDest(true);
+      const result = await reverseGeocode(lat, lng);
+      setGeocodingDest(false);
+      if (result) {
+        setForm((prev) => ({
+          ...prev,
+          destinationCity: result.city || prev.destinationCity,
+          destinationCountry: result.country || prev.destinationCountry,
+        }));
+      }
+    }
+  }
+
+  const pkgMapMarkers: MapMarker[] = [
+    ...(pickupPin
+      ? [
+          {
+            id: "pickup",
+            lat: pickupPin.lat,
+            lng: pickupPin.lng,
+            label: form.pickupLocation || "Pickup",
+            color: "green" as const,
+          },
+        ]
+      : []),
+    ...(destPin
+      ? [
+          {
+            id: "dest",
+            lat: destPin.lat,
+            lng: destPin.lng,
+            label: form.destinationCity || "Destination",
+            color: "red" as const,
+          },
+        ]
+      : []),
+  ];
+
+  const pkgMapArcs: MapArc[] =
+    pickupPin && destPin ? [{ from: pickupPin, to: destPin }] : [];
+
+  const isGeocoding = geocodingPickup || geocodingDest;
+
+  function handleStep1Submit(e: React.FormEvent) {
     e.preventDefault();
+    setStep(2);
+  }
+
+  async function handleConfirmPost() {
+    setActorError(null);
+    if (!actorAvailable) {
+      setActorError(
+        "Unable to connect. Please check your connection and try again.",
+      );
+      return;
+    }
     await onSubmit(form);
   }
 
@@ -1097,27 +1406,79 @@ function PackageModal({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 16 }}
         transition={{ duration: 0.22 }}
-        style={MODAL_CARD}
+        style={{
+          ...MODAL_CARD,
+          maxWidth: step === 2 ? 540 : 480,
+        }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Step indicator */}
         <div
           style={{
             display: "flex",
-            justifyContent: "space-between",
             alignItems: "center",
-            marginBottom: 20,
+            gap: 8,
+            marginBottom: 16,
           }}
         >
-          <h3
-            style={{
-              color: "#E8E8E8",
-              fontSize: 17,
-              fontWeight: 700,
-              margin: 0,
-            }}
+          <div
+            style={{ display: "flex", gap: 6, alignItems: "center", flex: 1 }}
           >
-            Post a Package
-          </h3>
+            <div
+              style={{
+                width: 22,
+                height: 22,
+                borderRadius: "50%",
+                background: step === 1 ? "#D4AF37" : "rgba(212,175,55,0.3)",
+                color: step === 1 ? "#111" : "#D4AF37",
+                fontSize: 11,
+                fontWeight: 700,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              1
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                color: step === 1 ? "#D4AF37" : "#6C6C6C",
+                fontWeight: step === 1 ? 600 : 400,
+              }}
+            >
+              Package Details
+            </span>
+            <ChevronRight
+              size={12}
+              style={{ color: "#3A3A3A", margin: "0 2px" }}
+            />
+            <div
+              style={{
+                width: 22,
+                height: 22,
+                borderRadius: "50%",
+                background: step === 2 ? "#D4AF37" : "rgba(212,175,55,0.15)",
+                color: step === 2 ? "#111" : "#6C6C6C",
+                fontSize: 11,
+                fontWeight: 700,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              2
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                color: step === 2 ? "#D4AF37" : "#6C6C6C",
+                fontWeight: step === 2 ? 600 : 400,
+              }}
+            >
+              Pin on Map
+            </span>
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -1134,47 +1495,89 @@ function PackageModal({
           </button>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          style={{ display: "flex", flexDirection: "column", gap: 14 }}
-        >
-          {/* Pickup */}
-          <div>
-            <label
-              htmlFor="pm-pickup"
+        {/* Step 1: Form */}
+        {step === 1 && (
+          <form
+            onSubmit={handleStep1Submit}
+            style={{ display: "flex", flexDirection: "column", gap: 14 }}
+          >
+            <h3
               style={{
-                color: "#9A9A9A",
-                fontSize: 12,
-                display: "block",
-                marginBottom: 6,
+                color: "#E8E8E8",
+                fontSize: 17,
+                fontWeight: 700,
+                margin: "0 0 4px",
               }}
             >
-              Pickup Location
-            </label>
-            <input
-              id="pm-pickup"
-              placeholder="e.g. 45 Marina St, Lagos"
-              value={form.pickupLocation}
-              onChange={(e) => field("pickupLocation", e.target.value)}
-              required
-              style={INPUT_STYLE}
-              data-ocid="move.package_modal.pickup.input"
-            />
-          </div>
+              Post a Package
+            </h3>
 
-          {/* Destination */}
-          <div>
-            <label
-              htmlFor="pm-dest-city"
-              style={{
-                color: "#9A9A9A",
-                fontSize: 12,
-                display: "block",
-                marginBottom: 6,
-              }}
-            >
-              Destination
-            </label>
+            {/* Pickup */}
+            <div>
+              <label
+                htmlFor="pm-pickup-search"
+                style={{
+                  color: "#9A9A9A",
+                  fontSize: 12,
+                  display: "block",
+                  marginBottom: 6,
+                }}
+              >
+                Pickup Location
+              </label>
+              <LocationSearchInput
+                value={form.pickupLocation}
+                onChange={(text) => field("pickupLocation", text)}
+                onSelectResult={(_displayName, coords, address) => {
+                  const cityStr = address.city
+                    ? `${address.city}${address.country ? `, ${address.country}` : ""}`
+                    : _displayName;
+                  field("pickupLocation", cityStr);
+                  setPickupPin({ lat: coords.lat, lng: coords.lng });
+                }}
+                placeholder="Search pickup location…"
+                required
+                data-ocid="move.package_modal.pickup.input"
+              />
+            </div>
+
+            {/* Destination */}
+            <div>
+              <label
+                htmlFor="pm-dest-city-search"
+                style={{
+                  color: "#9A9A9A",
+                  fontSize: 12,
+                  display: "block",
+                  marginBottom: 6,
+                }}
+              >
+                Destination City
+              </label>
+              <LocationSearchInput
+                value={form.destinationCity}
+                onChange={(text) => field("destinationCity", text)}
+                onSelectResult={(_displayName, coords, address) => {
+                  if (address.city) field("destinationCity", address.city);
+                  if (address.country)
+                    field("destinationCountry", address.country);
+                  setDestPin({ lat: coords.lat, lng: coords.lng });
+                }}
+                placeholder="Search destination city…"
+                required
+                data-ocid="move.package_modal.destination_city.input"
+              />
+              <input
+                placeholder="Country (auto-filled or type manually)"
+                value={form.destinationCountry}
+                onChange={(e) => field("destinationCountry", e.target.value)}
+                required
+                style={{ ...INPUT_STYLE, marginTop: 8 }}
+                data-ocid="move.package_modal.destination_country.input"
+              />
+            </div>
+
+            {/* Size & Weight */}
             <div
               style={{
                 display: "grid",
@@ -1182,33 +1585,65 @@ function PackageModal({
                 gap: 10,
               }}
             >
-              <input
-                id="pm-dest-city"
-                placeholder="City"
-                value={form.destinationCity}
-                onChange={(e) => field("destinationCity", e.target.value)}
-                required
-                style={INPUT_STYLE}
-                data-ocid="move.package_modal.destination_city.input"
-              />
-              <input
-                placeholder="Country"
-                value={form.destinationCountry}
-                onChange={(e) => field("destinationCountry", e.target.value)}
-                required
-                style={INPUT_STYLE}
-                data-ocid="move.package_modal.destination_country.input"
-              />
+              <div>
+                <label
+                  htmlFor="pm-size"
+                  style={{
+                    color: "#9A9A9A",
+                    fontSize: 12,
+                    display: "block",
+                    marginBottom: 6,
+                  }}
+                >
+                  Package Size
+                </label>
+                <select
+                  id="pm-size"
+                  value={form.size}
+                  onChange={(e) => field("size", e.target.value)}
+                  style={INPUT_STYLE}
+                  data-ocid="move.package_modal.size.select"
+                >
+                  {["Small", "Medium", "Large"].map((v) => (
+                    <option key={v} value={v} style={{ background: "#111" }}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label
+                  htmlFor="pm-weight"
+                  style={{
+                    color: "#9A9A9A",
+                    fontSize: 12,
+                    display: "block",
+                    marginBottom: 6,
+                  }}
+                >
+                  Weight (kg)
+                </label>
+                <input
+                  id="pm-weight"
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  placeholder="0.0"
+                  value={form.weightKg}
+                  onChange={(e) =>
+                    field("weightKg", Number.parseFloat(e.target.value) || "")
+                  }
+                  required
+                  style={INPUT_STYLE}
+                  data-ocid="move.package_modal.weight.input"
+                />
+              </div>
             </div>
-          </div>
 
-          {/* Size & Weight */}
-          <div
-            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}
-          >
+            {/* Description */}
             <div>
               <label
-                htmlFor="pm-size"
+                htmlFor="pm-desc"
                 style={{
                   color: "#9A9A9A",
                   fontSize: 12,
@@ -1216,91 +1651,257 @@ function PackageModal({
                   marginBottom: 6,
                 }}
               >
-                Package Size
+                Description
               </label>
-              <select
-                id="pm-size"
-                value={form.size}
-                onChange={(e) => field("size", e.target.value)}
-                style={INPUT_STYLE}
-                data-ocid="move.package_modal.size.select"
-              >
-                {["Small", "Medium", "Large"].map((v) => (
-                  <option key={v} value={v} style={{ background: "#111" }}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label
-                htmlFor="pm-weight"
-                style={{
-                  color: "#9A9A9A",
-                  fontSize: 12,
-                  display: "block",
-                  marginBottom: 6,
-                }}
-              >
-                Weight (kg)
-              </label>
-              <input
-                id="pm-weight"
-                type="number"
-                min="0.1"
-                step="0.1"
-                placeholder="0.0"
-                value={form.weightKg}
-                onChange={(e) =>
-                  field("weightKg", Number.parseFloat(e.target.value) || "")
-                }
+              <textarea
+                id="pm-desc"
+                placeholder="Briefly describe the package contents"
+                value={form.description}
+                onChange={(e) => field("description", e.target.value)}
                 required
-                style={INPUT_STYLE}
-                data-ocid="move.package_modal.weight.input"
+                rows={3}
+                style={{ ...INPUT_STYLE, resize: "none" }}
+                data-ocid="move.package_modal.description.textarea"
               />
             </div>
-          </div>
 
-          {/* Description */}
-          <div>
-            <label
-              htmlFor="pm-desc"
+            <button
+              type="submit"
               style={{
-                color: "#9A9A9A",
-                fontSize: 12,
-                display: "block",
-                marginBottom: 6,
+                ...GOLD_BTN,
+                width: "100%",
+                justifyContent: "center",
+                marginTop: 4,
+              }}
+              data-ocid="move.package_modal.next_button"
+            >
+              <MapPin size={15} /> Next: Pin on Map →
+            </button>
+          </form>
+        )}
+
+        {/* Step 2: Map */}
+        {step === 2 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                marginBottom: 2,
               }}
             >
-              Description
-            </label>
-            <textarea
-              id="pm-desc"
-              placeholder="Briefly describe the package contents"
-              value={form.description}
-              onChange={(e) => field("description", e.target.value)}
-              required
-              rows={3}
-              style={{ ...INPUT_STYLE, resize: "none" }}
-              data-ocid="move.package_modal.description.textarea"
-            />
-          </div>
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#9A9A9A",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  padding: 0,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+                data-ocid="move.package_modal.back_button"
+              >
+                ← Back
+              </button>
+              <h3
+                style={{
+                  color: "#E8E8E8",
+                  fontSize: 17,
+                  fontWeight: 700,
+                  margin: 0,
+                  flex: 1,
+                }}
+              >
+                Pin Locations
+              </h3>
+            </div>
 
-          <button
-            type="submit"
-            disabled={isLoading}
-            style={{
-              ...GOLD_BTN,
-              width: "100%",
-              justifyContent: "center",
-              marginTop: 4,
-              opacity: isLoading ? 0.7 : 1,
-            }}
-            data-ocid="move.package_modal.submit_button"
-          >
-            {isLoading ? "Posting..." : "Post Package"}
-          </button>
-        </form>
+            {/* Instruction */}
+            <div
+              style={{
+                background: "rgba(212,175,55,0.07)",
+                border: "1px solid rgba(212,175,55,0.18)",
+                borderRadius: 8,
+                padding: "10px 12px",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <MapPin size={14} style={{ color: "#D4AF37", flexShrink: 0 }} />
+              <p
+                style={{
+                  color: "#D4AF37",
+                  fontSize: 12,
+                  margin: 0,
+                  lineHeight: 1.5,
+                }}
+              >
+                {pinStep === "pickup"
+                  ? "Tap the map to set your pickup point"
+                  : pinStep === "destination"
+                    ? "Now tap to set your destination"
+                    : "Both pins placed! You can still edit the fields below."}
+              </p>
+            </div>
+
+            {/* Map */}
+            <MoveMap
+              markers={pkgMapMarkers}
+              arcs={pkgMapArcs}
+              onMapClick={handleMapClick}
+              height={300}
+              interactive={true}
+            />
+
+            {/* Editable fields below map */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 10,
+              }}
+            >
+              {/* Pickup */}
+              <div>
+                <div
+                  style={{
+                    color: "#9A9A9A",
+                    fontSize: 11,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    marginBottom: 4,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: "#4ADE80",
+                      flexShrink: 0,
+                    }}
+                  />
+                  Pickup
+                  {geocodingPickup && <GeoSpinner />}
+                </div>
+                <LocationSearchInput
+                  value={form.pickupLocation}
+                  onChange={(text) => field("pickupLocation", text)}
+                  onSelectResult={(_displayName, coords, address) => {
+                    const cityStr = address.city
+                      ? `${address.city}${address.country ? `, ${address.country}` : ""}`
+                      : _displayName;
+                    field("pickupLocation", cityStr);
+                    setPickupPin({ lat: coords.lat, lng: coords.lng });
+                    if (!destPin) setPinStep("destination");
+                    else setPinStep("done");
+                  }}
+                  placeholder="Search pickup…"
+                  style={{ fontSize: 12, padding: "8px 10px" }}
+                  data-ocid="move.package_modal.map_pickup.input"
+                />
+              </div>
+
+              {/* Destination */}
+              <div>
+                <div
+                  style={{
+                    color: "#9A9A9A",
+                    fontSize: 11,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    marginBottom: 4,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: "#F87171",
+                      flexShrink: 0,
+                    }}
+                  />
+                  Destination
+                  {geocodingDest && <GeoSpinner />}
+                </div>
+                <LocationSearchInput
+                  value={form.destinationCity}
+                  onChange={(text) => field("destinationCity", text)}
+                  onSelectResult={(_displayName, coords, address) => {
+                    if (address.city) field("destinationCity", address.city);
+                    if (address.country)
+                      field("destinationCountry", address.country);
+                    setDestPin({ lat: coords.lat, lng: coords.lng });
+                    setPinStep("done");
+                  }}
+                  placeholder="Search destination…"
+                  style={{ fontSize: 12, padding: "8px 10px" }}
+                  data-ocid="move.package_modal.map_destination.input"
+                />
+                <input
+                  placeholder="Country"
+                  value={form.destinationCountry}
+                  onChange={(e) => field("destinationCountry", e.target.value)}
+                  style={{
+                    ...INPUT_STYLE,
+                    fontSize: 12,
+                    padding: "8px 10px",
+                    marginTop: 6,
+                  }}
+                  data-ocid="move.package_modal.map_destination_country.input"
+                />
+              </div>
+            </div>
+
+            {/* Actor error */}
+            {actorError && (
+              <div
+                style={{
+                  background: "rgba(248,113,113,0.08)",
+                  border: "1px solid rgba(248,113,113,0.3)",
+                  borderRadius: 8,
+                  padding: "10px 14px",
+                  color: "#F87171",
+                  fontSize: 13,
+                }}
+                data-ocid="move.package_modal.error_state"
+              >
+                {actorError}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleConfirmPost}
+              disabled={isLoading || isGeocoding}
+              style={{
+                ...GOLD_BTN,
+                width: "100%",
+                justifyContent: "center",
+                marginTop: 4,
+                opacity: isLoading || isGeocoding ? 0.7 : 1,
+                cursor: isLoading || isGeocoding ? "not-allowed" : "pointer",
+              }}
+              data-ocid="move.package_modal.submit_button"
+            >
+              {isLoading
+                ? "Posting..."
+                : isGeocoding
+                  ? "Geocoding…"
+                  : "Confirm & Post Package"}
+            </button>
+          </div>
+        )}
       </motion.div>
     </div>
   );
@@ -2515,7 +3116,12 @@ export function MoveScreen({
   }
 
   async function handlePostPackage(form: PackageForm) {
-    if (!actor) return;
+    if (!actor) {
+      toast.error(
+        "Unable to connect. Please check your connection and try again.",
+      );
+      return;
+    }
     setPkgModalLoading(true);
     try {
       const result = await actor.postPackage(
@@ -3852,6 +4458,7 @@ export function MoveScreen({
             onClose={() => setShowPkgModal(false)}
             onSubmit={handlePostPackage}
             isLoading={pkgModalLoading}
+            actorAvailable={actor !== null}
           />
         )}
       </AnimatePresence>

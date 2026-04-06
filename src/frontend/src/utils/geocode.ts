@@ -28,8 +28,7 @@ export async function reverseGeocode(
   lat: number,
   lng: number,
 ): Promise<{ city: string; country: string } | null> {
-  // ISSUE 17: Wrap Nominatim fetch in a 6-second timeout so the
-  // submit button is never stuck disabled forever if the request hangs.
+  // 8-second timeout so the submit button is never permanently disabled
   const actualFetch = fetch(
     `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
     { headers: { "Accept-Language": "en" } },
@@ -48,7 +47,7 @@ export async function reverseGeocode(
     .catch(() => null);
 
   const timeoutPromise = new Promise<null>((resolve) =>
-    setTimeout(() => resolve(null), 6000),
+    setTimeout(() => resolve(null), 8000),
   );
 
   return Promise.race([actualFetch, timeoutPromise]);

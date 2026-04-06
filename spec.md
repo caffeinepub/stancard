@@ -1,51 +1,55 @@
-# Stancard — Fix All Inactive Buttons & Broken Interactions
+# Stancard — Move Module Fixes
 
 ## Current State
-Stancard is a full-stack financial super-app on ICP with Home, Markets, Pay, Alerts, Profile, and Move tabs. A full audit identified 17 broken, placeholder, or misleading buttons/interactions across 8 files.
+- `reverseGeocode()` in `src/frontend/src/utils/geocode.ts` has a 6s timeout but when it fires the `null` result still passes through correctly — however the `isGeocoding` state in `RouteModal` sometimes stays true if the timeout fires mid-state-update. More importantly, the user reports the button stays permanently disabled.
+- All city/country/pickup inputs in `RouteModal` (Step 1 and Step 2 editable fields) and `PackageModal` are plain `<input type="text">` with no autocomplete or suggestions.
+- `PackageModal` is a single-step form; there is no map step. The submit handler (`handlePostPackage`) silently returns if `actor` is null — no error is shown.
+- No search-as-you-type Nominatim forward-geocode integration exists anywhere in the Move module.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Notification bell in AppHeader wires to navigate to Alerts tab (passed via onBellClick prop from App.tsx)
-- Currency/forex alert type option in CreateAlertModal (3rd toggle: "💱 Currency"), with a FOREX_PAIRS symbol list (USD/NGN, EUR/NGN, GBP/NGN, CNY/NGN, JPY/NGN) and condition/target price fields
-- `Set Alert` button in MarketsScreen expanded chart modal that navigates to Alerts tab (passed via onSetAlert prop)
-- Geocoding 8-second timeout in `reverseGeocode` call within MoveScreen's `handleMapClick`
+- **`LocationSearchInput` component** (inside `MoveScreen.tsx`): a reusable controlled input that:
+  - Accepts `value`, `onChange(value, coords?)`, `placeholder`, `required`, `style` props
+  - After 3 characters typed, debounces 300ms then calls Nominatim forward-geocode search (`/search?q=...&format=json&limit=5&addressdetails=1`)
+  - Shows a gold-themed dropdown of up to 5 results below the input
+  - Each result shows `display_name` (truncated to 60 chars)
+  - Selecting a result fills the input text AND calls `onChange` with both the display name and `{ lat, lng }` coordinates
+  - If no results: shows "No locations found" in the dropdown (never closes silently)
+  - Closes dropdown on outside click or Escape
+  - Handles loading state with a small spinner inside the input
+- **Two-step map flow in `PackageModal`**: identical two-step pattern to `RouteModal` — Step 1: form fields, Step 2: pin pickup and drop-off on the map with search-as-you-type fields
+- **Actor null error in `handlePostPackage`**: if `actor` is null, show a visible red error message "Unable to connect. Please check your connection and try again." — store it as local state in `PackageModal` and render it above the submit button
 
 ### Modify
-- **AppHeader**: Add `onBellClick?: () => void` prop, wire Bell button onClick to it
-- **App.tsx**: Pass `onBellClick={() => setActiveTab('alerts')}` to AppHeader; pass `identity` and `displayName` to AlertsScreen; pass `displayName` to MoveScreen
-- **AlertsScreen**: Accept `identity` and `displayName` props; gate the "+" create button — if `actor` is null (not logged in), show a toast/inline message "Sign in to create alerts" instead of opening the modal silently. Add "currency" to assetType toggle. Pass `displayName` to AlertsScreen so it knows user is logged in.
-- **HomeScreen**: 
-  - Remove `hasFetchedRef` guard so news re-fetches every time the tab becomes active (or at minimum on each actor change). Keep 5-min interval.
-  - Replace hardcoded `activityItems` with real data: fetch last 3 transactions from `actor.getWalletTransactions()` when logged in; show "Sign in to view recent activity" when logged out; show empty state if no transactions.
-  - Replace hardcoded `+4.7% this month` badge with nothing (remove it entirely — no real data to compute this)
-  - Pass wallet balances as props to DonutChart so it shows real currency allocation
-- **DonutChart**: Accept `balances?: {currency: string, amount: number}[]` and `isLoggedIn?: boolean` props. When logged in and balances provided, compute currency allocation in USD using fixed rates (NGN/1600, EUR*1.09, GBP*1.27, CNY*0.138, USD*1) and render real segments. When logged out or no balances, show a placeholder state (e.g. "Sign in to view allocation" text inside the donut area).
-- **PayScreen FundWalletModal**: Add `displayName?: string` prop; pass it to Flutterwave customer `name` field (fallback to "Stancard User"). Accept `userEmail?: string` prop — for now still use "user@stancard.space" since no email is stored, but use display name.
-- **PayScreen ReceiveModal**: For non-NGN currencies, hide the amount input field and the "Confirm Receipt" button entirely (the section already shows "coming soon" messaging — the confirm button and amount field are redundant and misleading here). Only show close/done button for non-NGN.
-- **AlertsScreen**: Remove silent `if (!actor) return` from handleSubmit; replace with visible error message set to state shown above the submit button.
-- **TrackingPage**: When `actor` is null, instead of immediately setting `notFound=true`, show an informational message: "Connect your wallet or wait a moment for the app to load, then try again." with a retry button.
-- **NewsSection ArticlePreviewModal**: When `hasValidUrl` is false (mock article with url="#"), show the "Read Full Article" button as disabled with text "Full article not available" (styled differently — muted gold border, greyed text) instead of hiding it entirely.
-- **MarketsScreen**: Reset `hasFetchedOnce` when actor changes from null to a real value so market data re-fetches after login. Add `onSetAlert?: (symbol: string) => void` prop; add a "Set Alert" button to the expanded chart modal that calls this prop.
-- **MoveScreen**: Accept `displayName?: string` prop. Use `displayName || "Stancard User"` in Flutterwave checkout customer name. Wrap both `reverseGeocode` calls in `handleMapClick` with a `Promise.race` against a 8-second timeout — if it times out, set `setGeocodingDep(false)` / `setGeocodingDest(false)` so the button re-enables.
-- **ProfileScreen language pills**: Add a `(UI stays in English)` note directly inline next to the Chinese/French pills as small grey text, making it clear these are preference-only saves.
-- **MoveScreen browse section**: Add a "Request Rider" button on each browse route card that (a) if logged out, shows sign-in prompt; (b) if logged in but no packages posted, shows "Post a package first to send a request"; (c) if logged in and has packages, opens a package-picker dropdown to select which package to request this rider for, then opens the payment modal.
+- **`reverseGeocode()` in `geocode.ts`**: increase timeout from 6s to 8s
+- **`RouteModal` Step 1 — departure/destination city+country inputs**: replace all 4 plain `<input>` with `LocationSearchInput`. When a result is selected, set both the city AND country from the Nominatim result's `address.city`/`address.town`/`address.village` and `address.country`. The combined `display_name` fills the city field; country fills the country field separately.
+- **`RouteModal` Step 2 — editable city/country inputs below the map**: replace the 4 plain `<input>` with `LocationSearchInput`. When a result is selected, also move the corresponding map pin to the selected coordinates (call `setDepPin` or `setDestPin` accordingly).
+- **`handleMapClick` in `RouteModal`**: after `reverseGeocode` returns (or times out), the geocoding flags are set to false unconditionally — the fallback is already the existing field text. This is correct but must be verified to always clear both `setGeocodingDep(false)` and `setGeocodingDest(false)` even on timeout.
+- **`PackageModal` — pickup and destination inputs**: replace with `LocationSearchInput` in Step 1; add Step 2 map with search fields for both pickup and destination. Selecting a location in Step 2 also moves the pin.
 
 ### Remove
-- Hardcoded `activityItems` array from HomeScreen
-- Hardcoded `+4.7% this month` badge from portfolio card
-- Hardcoded `segments` constant from DonutChart
+- Nothing removed
 
 ## Implementation Plan
-1. **geocode.ts**: Add 8s timeout wrapper to `reverseGeocode`
-2. **DonutChart.tsx**: Accept real balance props, render real currency allocation or guest placeholder
-3. **AppHeader.tsx**: Add `onBellClick` prop, wire bell button
-4. **App.tsx**: Wire bell to alerts tab; pass `displayName` to MoveScreen; pass `identity`+`displayName` to AlertsScreen; pass `displayName` to AppHeader (already done)
-5. **HomeScreen.tsx**: Remove `hasFetchedRef` one-shot guard (replace with tab-active refetch); fetch real transactions for Recent Activity; remove hardcoded activityItems and +4.7% badge; pass real balances to DonutChart
-6. **AlertsScreen.tsx**: Add `identity`+`displayName` props; guard "+" button with login check; add currency asset type with forex pairs
-7. **MarketsScreen.tsx**: Reset `hasFetchedOnce` on actor login; add Set Alert button to expanded chart modal; accept `onSetAlert` prop from App.tsx
-8. **PayScreen.tsx**: Pass `displayName` to FundWalletModal; use it in Flutterwave customer name; hide amount+confirm in non-NGN Receive modal
-9. **MoveScreen.tsx**: Accept `displayName`; use in Flutterwave checkout; add geocoding timeout; add Request Rider to browse cards
-10. **TrackingPage.tsx**: Handle null actor with informational state instead of notFound
-11. **NewsSection.tsx**: Show disabled "Full article not available" button instead of hiding it for mock articles
-12. **ProfileScreen.tsx**: Add inline note on language pills
+
+1. **`geocode.ts`**: Change timeout from 6000ms to 8000ms in `reverseGeocode`.
+
+2. **`MoveScreen.tsx` — `LocationSearchInput` component**: Add as a new component near the top of the file (after `GeoSpinner`). It is self-contained with its own debounce timer ref, suggestion state, and loading state. The `onChange` callback signature: `(text: string, coords?: { lat: number; lng: number }) => void`.
+
+3. **`RouteModal` — Step 1 inputs**: Replace the 4 plain city/country inputs with `LocationSearchInput`. When a location is selected from the dropdown, parse the Nominatim result to extract city and country separately and set both form fields (not just one). Use the `address.city || address.town || address.village || address.county` pattern for city and `address.country` for country.
+
+   **Important**: Since city and country are two separate fields but `LocationSearchInput` is one component, each field gets its own `LocationSearchInput`. The departure search field fills both `departureCity` AND `departureCountry` when a result is selected. Same for destination. The input's `value` should show just the city; country is a separate `LocationSearchInput` that fills only the country.
+
+   **Simpler approach**: Combine each departure/destination into a single `LocationSearchInput` that shows `city, country` as the value and sets both fields on selection. Replace the two-column city+country layout with a single full-width search field per location group (Departure search / Destination search).
+
+4. **`RouteModal` — Step 2 editable fields**: Same `LocationSearchInput` for each. When a result is selected, additionally call `setDepPin({ lat, lng })` or `setDestPin({ lat, lng })` with the selected coordinates so the map pin moves.
+
+5. **`PackageModal`**: 
+   - Add `step` state (1 | 2), map pin state (`pickupPin`, `destPin`), geocoding states, pin step state (`PinStep`)
+   - Step 1: form fields — replace pickup and destination city/country with `LocationSearchInput`. Add "Next: Pin on Map →" button.
+   - Step 2: map with `onMapClick` handler (same reverse geocode + timeout pattern), editable search fields below for pickup and destination, "Confirm & Post" submit button. Back button returns to Step 1.
+   - Add `actorError` state. In `handleSubmit` (which is called when the Step 2 button is pressed), if `actor` is null, set `actorError = 'Unable to connect. Please check your connection and try again.'` — show this error in the modal.
+   - The `PackageModal` `onSubmit` prop already calls the actor from the parent; the parent's `handlePostPackage` also checks `if (!actor) return` — change that guard to call `toast.error('Unable to connect. Please check your connection and try again.')` instead of silently returning.
+
+6. **Dropdown styling**: dark background `#0D0D0D`, border `1px solid #2A2A2A`, each item `padding: 10px 12px`, hover state `background: rgba(212,175,55,0.1)`, text `#E8E8E8`, font-size 13px. "No locations found" item uses `color: #6C6C6C`. Position absolute below the input, z-index 500, border-radius 8px, max-height 220px overflow-y auto.

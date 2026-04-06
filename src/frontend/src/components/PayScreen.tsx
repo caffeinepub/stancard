@@ -407,13 +407,13 @@ function WalletCard({
         <div
           style={{
             fontSize: 13,
-            fontWeight: 600,
-            letterSpacing: "0.2em",
-            color: "rgba(0,0,0,0.55)",
-            fontFamily: "monospace",
+            fontWeight: 700,
+            letterSpacing: "0.08em",
+            color: "rgba(0,0,0,0.6)",
+            fontFamily: "inherit",
           }}
         >
-          •••• •••• •••• 4721
+          Stancard Pay · {CURRENCY_SYMBOL[currency]}
         </div>
       </div>
     </div>

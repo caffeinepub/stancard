@@ -1,0 +1,128 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.625rem;
+
+    /* Stancard Gold tokens — raw OKLCH L C H */
+    --gold-bright: 0.872 0.155 88.5; /* #F2D37A */
+    --gold: 0.764 0.148 79.2; /* #D4AF37 */
+    --gold-deep: 0.63 0.138 63.8; /* #B8871A */
+
+    /* CSS var aliases for inline-style use */
+    --color-gold-bright: #f2d37a;
+    --color-gold: #d4af37;
+    --color-gold-deep: #b8871a;
+
+    /* Dark-only palette — light mode not used */
+    --background: 0.068 0 0; /* #0A0A0A */
+    --foreground: 0.92 0 0; /* #E8E8E8 */
+    --card: 0.113 0 0; /* ~#1A1A1A */
+    --card-foreground: 0.92 0 0;
+    --popover: 0.145 0 0;
+    --popover-foreground: 0.92 0 0;
+    --primary: 0.764 0.148 79.2; /* gold */
+    --primary-foreground: 0.08 0 0; /* near-black on gold */
+    --secondary: 0.155 0 0;
+    --secondary-foreground: 0.87 0 0;
+    --muted: 0.155 0 0;
+    --muted-foreground: 0.64 0 0; /* #9A9A9A */
+    --accent: 0.764 0.148 79.2;
+    --accent-foreground: 0.08 0 0;
+    --destructive: 0.64 0.22 25.0;
+    --destructive-foreground: 0.985 0 0;
+    --border: 0.145 0 0; /* #242424 */
+    --input: 0.145 0 0;
+    --ring: 0.764 0.148 79.2;
+    --chart-1: 0.764 0.148 79.2; /* gold */
+    --chart-2: 0.9 0 0; /* white-ish */
+    --chart-3: 0.63 0.138 63.8; /* amber */
+    --chart-4: 0.5 0 0; /* gray */
+    --chart-5: 0.488 0.243 264.376;
+    --sidebar: 0.095 0 0;
+    --sidebar-foreground: 0.92 0 0;
+    --sidebar-primary: 0.764 0.148 79.2;
+    --sidebar-primary-foreground: 0.08 0 0;
+    --sidebar-accent: 0.145 0 0;
+    --sidebar-accent-foreground: 0.87 0 0;
+    --sidebar-border: 0.145 0 0;
+    --sidebar-ring: 0.764 0.148 79.2;
+  }
+
+  /* Force dark mode globally — this is a dark-only app */
+  html {
+    color-scheme: dark;
+  }
+
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Inter", "Satoshi", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overscroll-behavior: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Hide scrollbar but keep functionality */
+  ::-webkit-scrollbar {
+    width: 0px;
+    background: transparent;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Safe area support for iOS */
+  .safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .safe-area-pt {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  /* Dark semi-transparent overlay for all dialogs — premium financial app treatment */
+  [data-radix-dialog-overlay] {
+    background: rgba(0, 0, 0, 0.65) !important;
+  }
+}
+
+@layer utilities {
+  /* Gold gradient text */
+  .text-gold-gradient {
+    background: linear-gradient(135deg, #f2d37a 0%, #d4af37 50%, #b8871a 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Gold gradient background */
+  .bg-gold-gradient {
+    background: linear-gradient(135deg, #f2d37a 0%, #d4af37 55%, #b8871a 100%);
+  }
+
+  /* Subtle gold glow shadow */
+  .shadow-gold {
+    box-shadow: 0 8px 32px rgba(212, 175, 55, 0.25), 0 2px 8px
+      rgba(212, 175, 55, 0.15);
+  }
+
+  .shadow-gold-sm {
+    box-shadow: 0 4px 16px rgba(212, 175, 55, 0.2);
+  }
+
+  /* Activity row hover */
+  .activity-row:hover {
+    background: rgba(212, 175, 55, 0.04);
+  }
+}

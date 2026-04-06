@@ -9,6 +9,7 @@ import { BottomNav, type TabId } from "./components/BottomNav";
 import { DesktopSidebar } from "./components/DesktopSidebar";
 import { HomeScreen } from "./components/HomeScreen";
 import { MarketsScreen } from "./components/MarketsScreen";
+import { MoveScreen } from "./components/MoveScreen";
 import { PayScreen } from "./components/PayScreen";
 import { ProfileScreen } from "./components/ProfileScreen";
 import { useActor } from "./hooks/useActor";
@@ -116,6 +117,53 @@ interface ExtendedActor {
       }
     | { err: string }
   >;
+  registerRoute: (
+    vehicleType: string,
+    departureCity: string,
+    departureCountry: string,
+    destinationCity: string,
+    destinationCountry: string,
+    travelDate: string,
+    cargoSpace: string,
+  ) => Promise<{ ok: string } | { err: string }>;
+  updateRoute: (
+    routeId: string,
+    vehicleType: string,
+    departureCity: string,
+    departureCountry: string,
+    destinationCity: string,
+    destinationCountry: string,
+    travelDate: string,
+    cargoSpace: string,
+  ) => Promise<{ ok: string } | { err: string }>;
+  deleteRoute: (routeId: string) => Promise<{ ok: string } | { err: string }>;
+  getRiderRoutes: () => Promise<unknown[]>;
+  getAllRoutes: () => Promise<unknown[]>;
+  postPackage: (
+    pickupLocation: string,
+    destinationCity: string,
+    destinationCountry: string,
+    size: string,
+    weightKg: number,
+    description: string,
+  ) => Promise<{ ok: string } | { err: string }>;
+  getSenderPackages: () => Promise<unknown[]>;
+  getMatchedRiders: (
+    destinationCity: string,
+    destinationCountry: string,
+  ) => Promise<unknown[]>;
+  sendDeliveryRequest: (
+    packageId: string,
+    routeId: string,
+    riderPrincipalText: string,
+  ) => Promise<{ ok: string } | { err: string }>;
+  getIncomingRequests: () => Promise<unknown[]>;
+  respondToRequest: (
+    requestId: string,
+    accept: boolean,
+  ) => Promise<{ ok: string } | { err: string }>;
+  getSenderRequests: () => Promise<unknown[]>;
+  getAcceptedDeliveries: () => Promise<unknown[]>;
 }
 
 function loadFromStorage<T>(key: string, defaultValue: T): T {
@@ -352,6 +400,9 @@ export default function App() {
           isActive={activeTab === "alerts"}
           onAlertTriggered={handleAlertTriggered}
         />
+      )}
+      {activeTab === "move" && ( // biome-ignore lint: actor cast needed for MoveScreen compatibility
+        <MoveScreen identity={identity} actor={actor as any} />
       )}
       {activeTab === "profile" && (
         <ProfileScreen

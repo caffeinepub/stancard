@@ -644,6 +644,36 @@ persistent actor {
     }
   };
 
+  // ─── Public API — YouTube (query-parameterized) ───────────────────────────
+
+  // Replace spaces with '+' for URL query encoding
+  func encodeQuery(q : Text) : Text {
+    let chars = Text.toArray(q);
+    var out = "";
+    for (c in chars.vals()) {
+      if (c == ' ') { out := out # "+" }
+      else { out := out # Text.fromChar(c) };
+    };
+    out
+  };
+
+  public func getYouTubeVideosByQuery(searchQuery : Text) : async [YouTubeVideo] {
+    let ytKey = "AIzaSyBZml9-ecTMgl7mj7La5fDfduXCpPuSNWE";
+    let encoded = encodeQuery(searchQuery);
+    let ytUrl = "https://www.googleapis.com/youtube/v3/search?part=snippet&q=" # encoded # "&maxResults=6&type=video&key=" # ytKey;
+
+    let resp = await httpGet(ytUrl);
+    switch (resp) {
+      case (?j) {
+        switch (parseYouTube(j)) {
+          case (?vids) vids;
+          case null mockYouTubeVideos;
+        }
+      };
+      case null mockYouTubeVideos;
+    }
+  };
+
   // ─── Public API — Historical Prices (with 24h canister cache) ─────────────
 
   public func getHistoricalPrices(symbol : Text) : async [Float] {
@@ -1080,5 +1110,361 @@ persistent actor {
     await doCreateVirtualAccount(msg.caller, displayName)
   };
 
+
+
+
+  // ─── Stancard Move Module ─────────────────────────────────────────────────
+
+  // Types
+  public type RiderRoute = {
+    routeId : Text;
+    riderPrincipal : Principal;
+    vehicleType : Text;
+    departureCity : Text;
+    departureCountry : Text;
+    destinationCity : Text;
+    destinationCountry : Text;
+    travelDate : Text;
+    cargoSpace : Text;
+    createdAt : Int;
+  };
+
+  public type Package = {
+    packageId : Text;
+    senderPrincipal : Principal;
+    pickupLocation : Text;
+    destinationCity : Text;
+    destinationCountry : Text;
+    size : Text;
+    weightKg : Float;
+    description : Text;
+    createdAt : Int;
+  };
+
+  public type DeliveryRequest = {
+    requestId : Text;
+    packageId : Text;
+    senderPrincipal : Principal;
+    riderPrincipal : Principal;
+    routeId : Text;
+    status : Text;
+    createdAt : Int;
+  };
+
+  public type RequestWithPackage = {
+    requestId : Text;
+    packageId : Text;
+    senderPrincipal : Principal;
+    routeId : Text;
+    status : Text;
+    createdAt : Int;
+    pickupLocation : Text;
+    destinationCity : Text;
+    destinationCountry : Text;
+    size : Text;
+    weightKg : Float;
+    description : Text;
+  };
+
+  public type MoveResult = { #ok : Text; #err : Text; };
+
+  // Persistent state
+  var riderRoutes : [(Principal, [RiderRoute])] = [];
+  var packages : [(Principal, [Package])] = [];
+  var deliveryRequests : [DeliveryRequest] = [];
+  var routeCounter : Nat = 0;
+  var packageCounter : Nat = 0;
+  var requestCounter : Nat = 0;
+
+  // Helpers
+  func getRouteMap() : HashMap.HashMap<Principal, [RiderRoute]> {
+    HashMap.fromIter<Principal, [RiderRoute]>(
+      riderRoutes.vals(), 16, Principal.equal, Principal.hash
+    )
+  };
+
+  func getPackageMap() : HashMap.HashMap<Principal, [Package]> {
+    HashMap.fromIter<Principal, [Package]>(
+      packages.vals(), 16, Principal.equal, Principal.hash
+    )
+  };
+
+  func textLower(t : Text) : Text {
+    Text.map(t, func(c) {
+      if (c >= 'A' and c <= 'Z') {
+        Char.fromNat32(Char.toNat32(c) + 32)
+      } else c
+    })
+  };
+
+  // Register a new route
+  public shared (msg) func registerRoute(
+    vehicleType : Text,
+    departureCity : Text,
+    departureCountry : Text,
+    destinationCity : Text,
+    destinationCountry : Text,
+    travelDate : Text,
+    cargoSpace : Text
+  ) : async MoveResult {
+    if (Principal.isAnonymous(msg.caller)) {
+      return #err("You must be signed in to register a route.");
+    };
+    routeCounter += 1;
+    let routeId = "route-" # Nat.toText(routeCounter) # "-" # Nat.toText(Int.abs(Time.now()));
+    let route : RiderRoute = {
+      routeId;
+      riderPrincipal = msg.caller;
+      vehicleType;
+      departureCity;
+      departureCountry;
+      destinationCity;
+      destinationCountry;
+      travelDate;
+      cargoSpace;
+      createdAt = Time.now();
+    };
+    let map = getRouteMap();
+    let existing = switch (map.get(msg.caller)) { case (?r) r; case null [] };
+    map.put(msg.caller, Array.append(existing, [route]));
+    riderRoutes := Iter.toArray(map.entries());
+    #ok(routeId)
+  };
+
+  // Update an existing route
+  public shared (msg) func updateRoute(
+    routeId : Text,
+    vehicleType : Text,
+    departureCity : Text,
+    departureCountry : Text,
+    destinationCity : Text,
+    destinationCountry : Text,
+    travelDate : Text,
+    cargoSpace : Text
+  ) : async MoveResult {
+    if (Principal.isAnonymous(msg.caller)) {
+      return #err("You must be signed in.");
+    };
+    let map = getRouteMap();
+    let existing = switch (map.get(msg.caller)) { case (?r) r; case null [] };
+    let found = Array.find(existing, func(r) { r.routeId == routeId });
+    switch (found) {
+      case null { return #err("Route not found.") };
+      case (?_) {
+        let updated = Array.map(existing, func(r) {
+          if (r.routeId == routeId) {
+            { routeId; riderPrincipal = msg.caller; vehicleType; departureCity; departureCountry; destinationCity; destinationCountry; travelDate; cargoSpace; createdAt = r.createdAt }
+          } else r
+        });
+        map.put(msg.caller, updated);
+        riderRoutes := Iter.toArray(map.entries());
+        #ok("Route updated.")
+      };
+    }
+  };
+
+  // Delete a route
+  public shared (msg) func deleteRoute(routeId : Text) : async MoveResult {
+    if (Principal.isAnonymous(msg.caller)) {
+      return #err("You must be signed in.");
+    };
+    let map = getRouteMap();
+    let existing = switch (map.get(msg.caller)) { case (?r) r; case null [] };
+    let filtered = Array.filter(existing, func(r) { r.routeId != routeId });
+    map.put(msg.caller, filtered);
+    riderRoutes := Iter.toArray(map.entries());
+    #ok("Route deleted.")
+  };
+
+  // Get caller's routes
+  public query (msg) func getRiderRoutes() : async [RiderRoute] {
+    let map = getRouteMap();
+    switch (map.get(msg.caller)) { case (?r) r; case null [] }
+  };
+
+  // Get all routes (for browse/guest view)
+  public query func getAllRoutes() : async [RiderRoute] {
+    let map = getRouteMap();
+    var all : [RiderRoute] = [];
+    for ((_, routes) in map.entries()) {
+      all := Array.append(all, routes);
+    };
+    all
+  };
+
+  // Post a package
+  public shared (msg) func postPackage(
+    pickupLocation : Text,
+    destinationCity : Text,
+    destinationCountry : Text,
+    size : Text,
+    weightKg : Float,
+    description : Text
+  ) : async MoveResult {
+    if (Principal.isAnonymous(msg.caller)) {
+      return #err("You must be signed in to post a package.");
+    };
+    packageCounter += 1;
+    let packageId = "pkg-" # Nat.toText(packageCounter) # "-" # Nat.toText(Int.abs(Time.now()));
+    let pkg : Package = {
+      packageId;
+      senderPrincipal = msg.caller;
+      pickupLocation;
+      destinationCity;
+      destinationCountry;
+      size;
+      weightKg;
+      description;
+      createdAt = Time.now();
+    };
+    let map = getPackageMap();
+    let existing = switch (map.get(msg.caller)) { case (?p) p; case null [] };
+    map.put(msg.caller, Array.append(existing, [pkg]));
+    packages := Iter.toArray(map.entries());
+    #ok(packageId)
+  };
+
+  // Get caller's packages
+  public query (msg) func getSenderPackages() : async [Package] {
+    let map = getPackageMap();
+    switch (map.get(msg.caller)) { case (?p) p; case null [] }
+  };
+
+  // Get matched riders for a destination
+  public query func getMatchedRiders(destinationCity : Text, destinationCountry : Text) : async [RiderRoute] {
+    let targetCity = textLower(destinationCity);
+    let targetCountry = textLower(destinationCountry);
+    let map = getRouteMap();
+    var matched : [RiderRoute] = [];
+    for ((_, routes) in map.entries()) {
+      for (route in routes.vals()) {
+        let matchCity = textLower(route.destinationCity) == targetCity;
+        let matchCountry = textLower(route.destinationCountry) == targetCountry;
+        if (matchCity and matchCountry) {
+          matched := Array.append(matched, [route]);
+        };
+      };
+    };
+    matched
+  };
+
+  // Send a delivery request
+  public shared (msg) func sendDeliveryRequest(
+    packageId : Text,
+    routeId : Text,
+    riderPrincipalText : Text
+  ) : async MoveResult {
+    if (Principal.isAnonymous(msg.caller)) {
+      return #err("You must be signed in to send a request.");
+    };
+    // Block duplicate requests for same package+route
+    let dupCheck = Array.find(deliveryRequests, func(r) {
+      r.packageId == packageId and r.routeId == routeId and Principal.equal(r.senderPrincipal, msg.caller)
+    });
+    switch (dupCheck) {
+      case (?_) { return #err("You already sent a request for this package to this rider.") };
+      case null {};
+    };
+    let riderOpt : ?Principal = try { ?Principal.fromText(riderPrincipalText) } catch (_) { null };
+    let riderPrincipal = switch (riderOpt) {
+      case null { return #err("Invalid rider ID.") };
+      case (?p) p;
+    };
+    requestCounter += 1;
+    let requestId = "req-" # Nat.toText(requestCounter) # "-" # Nat.toText(Int.abs(Time.now()));
+    let req : DeliveryRequest = {
+      requestId;
+      packageId;
+      senderPrincipal = msg.caller;
+      riderPrincipal;
+      routeId;
+      status = "Pending";
+      createdAt = Time.now();
+    };
+    deliveryRequests := Array.append(deliveryRequests, [req]);
+    #ok(requestId)
+  };
+
+  // Get incoming requests for rider (with full package details)
+  public query (msg) func getIncomingRequests() : async [RequestWithPackage] {
+    let routeMap = getRouteMap();
+    let myRoutes = switch (routeMap.get(msg.caller)) { case (?r) r; case null [] };
+    let myRouteIds = Array.map(myRoutes, func(r) { r.routeId });
+    let pkgMap = getPackageMap();
+    var result : [RequestWithPackage] = [];
+    for (req in deliveryRequests.vals()) {
+      let isMyRoute = Array.find(myRouteIds, func(id) { id == req.routeId });
+      switch (isMyRoute) {
+        case null {};
+        case (?_) {
+          // Find the package
+          var foundPkg : ?Package = null;
+          for ((_, pkgs) in pkgMap.entries()) {
+            for (pkg in pkgs.vals()) {
+              if (pkg.packageId == req.packageId) {
+                foundPkg := ?pkg;
+              };
+            };
+          };
+          switch (foundPkg) {
+            case null {};
+            case (?pkg) {
+              let rwp : RequestWithPackage = {
+                requestId = req.requestId;
+                packageId = req.packageId;
+                senderPrincipal = req.senderPrincipal;
+                routeId = req.routeId;
+                status = req.status;
+                createdAt = req.createdAt;
+                pickupLocation = pkg.pickupLocation;
+                destinationCity = pkg.destinationCity;
+                destinationCountry = pkg.destinationCountry;
+                size = pkg.size;
+                weightKg = pkg.weightKg;
+                description = pkg.description;
+              };
+              result := Array.append(result, [rwp]);
+            };
+          };
+        };
+      };
+    };
+    result
+  };
+
+  // Respond to a delivery request (accept or decline)
+  public shared (msg) func respondToRequest(requestId : Text, accept : Bool) : async MoveResult {
+    if (Principal.isAnonymous(msg.caller)) {
+      return #err("You must be signed in.");
+    };
+    let found = Array.find(deliveryRequests, func(r) { r.requestId == requestId });
+    switch (found) {
+      case null { return #err("Request not found.") };
+      case (?req) {
+        if (not Principal.equal(req.riderPrincipal, msg.caller)) {
+          return #err("You are not the rider for this request.");
+        };
+        let newStatus = if (accept) "Accepted" else "Declined";
+        deliveryRequests := Array.map(deliveryRequests, func(r) {
+          if (r.requestId == requestId) {
+            { requestId = r.requestId; packageId = r.packageId; senderPrincipal = r.senderPrincipal; riderPrincipal = r.riderPrincipal; routeId = r.routeId; status = newStatus; createdAt = r.createdAt }
+          } else r
+        });
+        #ok("Request " # newStatus # ".")
+      };
+    }
+  };
+
+  // Get sender's own requests
+  public query (msg) func getSenderRequests() : async [DeliveryRequest] {
+    Array.filter(deliveryRequests, func(r) { Principal.equal(r.senderPrincipal, msg.caller) })
+  };
+
+  // Get rider's accepted deliveries
+  public query (msg) func getAcceptedDeliveries() : async [DeliveryRequest] {
+    Array.filter(deliveryRequests, func(r) {
+      Principal.equal(r.riderPrincipal, msg.caller) and r.status == "Accepted"
+    })
+  };
 
 }

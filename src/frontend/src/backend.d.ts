@@ -103,16 +103,70 @@ export type VirtualAccountResult =
     | { ok: VirtualAccount }
     | { err: string };
 
-
 export type SendMoneyResult =
     | { ok: { txId: string; reference: string; recipientId: string; amount: number; currency: string; timestamp: string } }
     | { err: string };
+
+export type MoveResult =
+    | { ok: string }
+    | { err: string };
+
+export interface RiderRoute {
+    routeId: string;
+    riderPrincipal: Principal;
+    vehicleType: string;
+    departureCity: string;
+    departureCountry: string;
+    destinationCity: string;
+    destinationCountry: string;
+    travelDate: string;
+    cargoSpace: string;
+    createdAt: bigint;
+}
+
+export interface Package {
+    packageId: string;
+    senderPrincipal: Principal;
+    pickupLocation: string;
+    destinationCity: string;
+    destinationCountry: string;
+    size: string;
+    weightKg: number;
+    description: string;
+    createdAt: bigint;
+}
+
+export interface DeliveryRequest {
+    requestId: string;
+    packageId: string;
+    senderPrincipal: Principal;
+    riderPrincipal: Principal;
+    routeId: string;
+    status: string;
+    createdAt: bigint;
+}
+
+export interface RequestWithPackage {
+    requestId: string;
+    packageId: string;
+    senderPrincipal: Principal;
+    routeId: string;
+    status: string;
+    createdAt: bigint;
+    pickupLocation: string;
+    destinationCity: string;
+    destinationCountry: string;
+    size: string;
+    weightKg: number;
+    description: string;
+}
 
 export interface backendInterface {
     _initializeAccessControlWithSecret: (adminToken: string) => Promise<void>;
     getMarketData: () => Promise<MarketData>;
     getNewsData: () => Promise<NewsData>;
     getYouTubeVideos: () => Promise<YouTubeVideo[]>;
+    getYouTubeVideosByQuery: (query: string) => Promise<YouTubeVideo[]>;
     getHistoricalPrices: (symbol: string) => Promise<number[]>;
     addAlert: (assetType: string, symbol: string, condition: string, targetPrice: number) => Promise<Alert>;
     getAlerts: () => Promise<Alert[]>;
@@ -130,4 +184,17 @@ export interface backendInterface {
     getVirtualAccount: () => Promise<VirtualAccount | undefined>;
     createVirtualAccount: (displayName: string) => Promise<VirtualAccountResult>;
     refreshVirtualAccount: (displayName: string) => Promise<VirtualAccountResult>;
+    registerRoute: (vehicleType: string, departureCity: string, departureCountry: string, destinationCity: string, destinationCountry: string, travelDate: string, cargoSpace: string) => Promise<MoveResult>;
+    updateRoute: (routeId: string, vehicleType: string, departureCity: string, departureCountry: string, destinationCity: string, destinationCountry: string, travelDate: string, cargoSpace: string) => Promise<MoveResult>;
+    deleteRoute: (routeId: string) => Promise<MoveResult>;
+    getRiderRoutes: () => Promise<RiderRoute[]>;
+    getAllRoutes: () => Promise<RiderRoute[]>;
+    postPackage: (pickupLocation: string, destinationCity: string, destinationCountry: string, size: string, weightKg: number, description: string) => Promise<MoveResult>;
+    getSenderPackages: () => Promise<Package[]>;
+    getMatchedRiders: (destinationCity: string, destinationCountry: string) => Promise<RiderRoute[]>;
+    sendDeliveryRequest: (packageId: string, routeId: string, riderPrincipalText: string) => Promise<MoveResult>;
+    getIncomingRequests: () => Promise<RequestWithPackage[]>;
+    respondToRequest: (requestId: string, accept: boolean) => Promise<MoveResult>;
+    getSenderRequests: () => Promise<DeliveryRequest[]>;
+    getAcceptedDeliveries: () => Promise<DeliveryRequest[]>;
 }

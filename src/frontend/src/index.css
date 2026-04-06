@@ -126,3 +126,49 @@
     background: rgba(212, 175, 55, 0.04);
   }
 }
+
+/* Spin keyframe for geocoding indicators */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Leaflet dark theme overrides — CartoDB dark matter maps */
+.leaflet-control-zoom a {
+  background-color: #1a1a1a !important;
+  color: #d4af37 !important;
+  border-color: #2a2a2a !important;
+}
+
+.leaflet-bar {
+  border-color: #2a2a2a !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5) !important;
+}
+
+.leaflet-control-attribution {
+  background: rgba(17, 17, 17, 0.85) !important;
+  color: #5a5a5a !important;
+  font-size: 10px !important;
+}
+
+.leaflet-control-attribution a {
+  color: #8a8a8a !important;
+}
+
+/* Move map tooltip styling */
+.move-map-tooltip {
+  background: rgba(17, 17, 17, 0.95) !important;
+  border: 1px solid rgba(212, 175, 55, 0.3) !important;
+  color: #e8e8e8 !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  border-radius: 6px !important;
+  padding: 4px 8px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
+  white-space: nowrap !important;
+}
+
+.move-map-tooltip::before {
+  border-top-color: rgba(212, 175, 55, 0.3) !important;
+}

@@ -1,6 +1,6 @@
-import { Bell, CreditCard, Home, TrendingUp, User } from "lucide-react";
+import { Bell, CreditCard, Home, TrendingUp, Truck, User } from "lucide-react";
 
-export type TabId = "home" | "markets" | "pay" | "alerts" | "profile";
+export type TabId = "home" | "markets" | "pay" | "alerts" | "profile" | "move";
 
 interface NavTab {
   id: TabId;
@@ -18,6 +18,7 @@ const tabs: NavTab[] = [
   { id: "markets", label: "Markets", icon: TrendingUp },
   { id: "pay", label: "Pay", icon: CreditCard, isPay: true },
   { id: "alerts", label: "Alerts", icon: Bell },
+  { id: "move", label: "Move", icon: Truck },
   { id: "profile", label: "Profile", icon: User },
 ];
 
@@ -60,7 +61,7 @@ export function BottomNav({
             type="button"
             key={tab.id}
             onClick={() => handleTabClick(tab.id)}
-            className="flex flex-col items-center justify-center flex-1 py-2 gap-1 transition-all duration-200 relative"
+            className="flex flex-col items-center justify-center flex-1 py-2 gap-0.5 transition-all duration-200 relative"
             style={{
               color: isActive ? "#D4AF37" : "#6C6C6C",
               minHeight: tab.isPay ? "64px" : "56px",
@@ -101,7 +102,6 @@ export function BottomNav({
                     transition: "color 0.2s",
                   }}
                 />
-                {/* Gold alert badge dot */}
                 {showBadge && (
                   <span
                     data-ocid="nav.alerts.badge"
@@ -122,7 +122,7 @@ export function BottomNav({
               </div>
             )}
             <span
-              className="text-[10px] font-medium tracking-wide"
+              className="text-[9px] font-medium tracking-wide"
               style={{
                 color: isActive ? "#D4AF37" : "#6C6C6C",
                 transition: "color 0.2s",

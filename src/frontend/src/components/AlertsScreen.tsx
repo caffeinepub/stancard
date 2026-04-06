@@ -78,7 +78,7 @@ interface MarketData {
 
 interface FullBackend {
   getMarketData: () => Promise<MarketData>;
-  getYouTubeVideos: () => Promise<YouTubeVideo[]>;
+  getYouTubeVideosByQuery: (query: string) => Promise<YouTubeVideo[]>;
   addAlert: (
     assetType: string,
     symbol: string,
@@ -126,6 +126,25 @@ function formatPrice(price: number, symbol: string): string {
   if (symbol === "BTC")
     return `$${price.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   return `$${price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function deriveYouTubeQuery(alerts: Alert[]): string {
+  const hasStock = alerts.some((a) => a.assetType === "stock");
+  const hasCrypto = alerts.some((a) => a.assetType === "crypto");
+  const hasCurrency = alerts.some((a) => a.assetType === "currency");
+
+  const parts: string[] = [];
+  if (hasStock) parts.push("stock");
+  if (hasCrypto) parts.push("crypto");
+  if (hasCurrency) parts.push("forex");
+
+  if (parts.length === 0) return "global financial markets today";
+  if (parts.length === 1) {
+    if (hasStock) return "stock market analysis today";
+    if (hasCrypto) return "crypto market update today";
+    return "forex market update today";
+  }
+  return `${parts.join(" ")} market update today`;
 }
 
 // ── Create Alert Modal ─────────────────────────────────────────────────────────
@@ -830,19 +849,10 @@ export function AlertsScreen({
   const alertsRef = useRef<Alert[]>([]);
   alertsRef.current = alerts;
 
-  // ── Data fetching ────────────────────────────────────────────────────────────
+  // Track the current YouTube query to avoid redundant re-fetches
+  const currentQueryRef = useRef<string>("global financial markets today");
 
-  const fetchAlerts = useCallback(async () => {
-    if (!actor) return;
-    try {
-      const data = await actor.getAlerts();
-      setAlerts(data);
-    } catch {
-      // silently fail
-    } finally {
-      setLoadingAlerts(false);
-    }
-  }, [actor]);
+  // ── Data fetching ────────────────────────────────────────────────────────────
 
   const fetchMarketData = useCallback(async () => {
     if (!actor) return;
@@ -856,23 +866,38 @@ export function AlertsScreen({
     }
   }, [actor]);
 
-  const fetchVideos = useCallback(async () => {
-    if (!actor) return;
-    try {
-      const data = await actor.getYouTubeVideos();
-      setVideos(data.slice(0, 6));
-    } catch {
-      // silently fail
-    } finally {
-      setLoadingVideos(false);
-    }
-  }, [actor]);
+  const fetchVideos = useCallback(
+    async (query?: string) => {
+      if (!actor) return;
+      const q = query ?? currentQueryRef.current;
+      try {
+        const data = await actor.getYouTubeVideosByQuery(q);
+        setVideos(data.slice(0, 6));
+      } catch {
+        // silently fail
+      } finally {
+        setLoadingVideos(false);
+      }
+    },
+    [actor],
+  );
 
-  // Initial load when tab becomes active
+  // Initial load when tab becomes active — fetch alerts first, derive query, then fetch videos
   useEffect(() => {
     if (!isActive || !actor) return;
-    Promise.all([fetchAlerts(), fetchMarketData(), fetchVideos()]);
-  }, [isActive, actor, fetchAlerts, fetchMarketData, fetchVideos]);
+    const load = async () => {
+      const [alertData] = await Promise.all([
+        actor.getAlerts().catch(() => [] as Alert[]),
+        fetchMarketData(),
+      ]);
+      setAlerts(alertData);
+      setLoadingAlerts(false);
+      const q = deriveYouTubeQuery(alertData);
+      currentQueryRef.current = q;
+      await fetchVideos(q);
+    };
+    load();
+  }, [isActive, actor, fetchMarketData, fetchVideos]);
 
   // ── Alert checking logic ──────────────────────────────────────────────────────
 
@@ -959,7 +984,16 @@ export function AlertsScreen({
     if (!actor) return;
     try {
       await actor.deleteAlert(id);
-      setAlerts((prev) => prev.filter((a) => a.id !== id));
+      setAlerts((prev) => {
+        const updated = prev.filter((a) => a.id !== id);
+        const newQuery = deriveYouTubeQuery(updated);
+        if (newQuery !== currentQueryRef.current) {
+          currentQueryRef.current = newQuery;
+          setLoadingVideos(true);
+          fetchVideos(newQuery);
+        }
+        return updated;
+      });
     } catch {
       // silently fail
     }
@@ -1290,7 +1324,16 @@ export function AlertsScreen({
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         onCreated={(alert) => {
-          setAlerts((prev) => [alert, ...prev]);
+          setAlerts((prev) => {
+            const updated = [alert, ...prev];
+            const newQuery = deriveYouTubeQuery(updated);
+            if (newQuery !== currentQueryRef.current) {
+              currentQueryRef.current = newQuery;
+              setLoadingVideos(true);
+              fetchVideos(newQuery);
+            }
+            return updated;
+          });
         }}
       />
 

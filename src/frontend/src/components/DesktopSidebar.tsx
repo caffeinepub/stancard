@@ -1,4 +1,4 @@
-import { Bell, CreditCard, Home, TrendingUp, User } from "lucide-react";
+import { Bell, CreditCard, Home, TrendingUp, Truck, User } from "lucide-react";
 import type { TabId } from "./BottomNav";
 
 interface DesktopSidebarProps {
@@ -22,6 +22,7 @@ const tabs: Array<{
   { id: "markets", label: "Markets", icon: TrendingUp },
   { id: "pay", label: "Pay", icon: CreditCard, isPay: true },
   { id: "alerts", label: "Alerts", icon: Bell },
+  { id: "move", label: "Move", icon: Truck },
   { id: "profile", label: "Profile", icon: User },
 ];
 

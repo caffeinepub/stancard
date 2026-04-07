@@ -648,8 +648,12 @@ function RouteModal({
       setDepPin({ lat, lng });
       setPinStep("destination");
       setGeocodingDep(true);
-      const result = await reverseGeocode(lat, lng);
-      setGeocodingDep(false);
+      let result: { city: string; country: string } | null = null;
+      try {
+        result = await reverseGeocode(lat, lng);
+      } finally {
+        setGeocodingDep(false);
+      }
       if (result) {
         setForm((prev) => ({
           ...prev,
@@ -661,13 +665,17 @@ function RouteModal({
       setDestPin({ lat, lng });
       setPinStep("done");
       setGeocodingDest(true);
-      const result = await reverseGeocode(lat, lng);
-      setGeocodingDest(false);
-      if (result) {
+      let result2: { city: string; country: string } | null = null;
+      try {
+        result2 = await reverseGeocode(lat, lng);
+      } finally {
+        setGeocodingDest(false);
+      }
+      if (result2) {
         setForm((prev) => ({
           ...prev,
-          destinationCity: result.city || prev.destinationCity,
-          destinationCountry: result.country || prev.destinationCountry,
+          destinationCity: result2.city || prev.destinationCity,
+          destinationCountry: result2.country || prev.destinationCountry,
         }));
       }
     }
@@ -1273,13 +1281,11 @@ function PackageModal({
   onClose,
   onSubmit,
   isLoading,
-  actorAvailable,
 }: {
   open: boolean;
   onClose: () => void;
   onSubmit: (form: PackageForm) => Promise<void>;
   isLoading: boolean;
-  actorAvailable: boolean;
 }) {
   const [form, setForm] = useState<PackageForm>(EMPTY_PKG_FORM);
   const [step, setStep] = useState<1 | 2>(1);
@@ -1319,13 +1325,17 @@ function PackageModal({
       setPickupPin({ lat, lng });
       setPinStep("destination");
       setGeocodingPickup(true);
-      const result = await reverseGeocode(lat, lng);
-      setGeocodingPickup(false);
-      if (result) {
+      let pickupResult: { city: string; country: string } | null = null;
+      try {
+        pickupResult = await reverseGeocode(lat, lng);
+      } finally {
+        setGeocodingPickup(false);
+      }
+      if (pickupResult) {
         setForm((prev) => ({
           ...prev,
-          pickupLocation: result.city
-            ? `${result.city}, ${result.country}`
+          pickupLocation: pickupResult.city
+            ? `${pickupResult.city}, ${pickupResult.country}`
             : prev.pickupLocation,
         }));
       }
@@ -1333,13 +1343,17 @@ function PackageModal({
       setDestPin({ lat, lng });
       setPinStep("done");
       setGeocodingDest(true);
-      const result = await reverseGeocode(lat, lng);
-      setGeocodingDest(false);
-      if (result) {
+      let destResult: { city: string; country: string } | null = null;
+      try {
+        destResult = await reverseGeocode(lat, lng);
+      } finally {
+        setGeocodingDest(false);
+      }
+      if (destResult) {
         setForm((prev) => ({
           ...prev,
-          destinationCity: result.city || prev.destinationCity,
-          destinationCountry: result.country || prev.destinationCountry,
+          destinationCity: destResult.city || prev.destinationCity,
+          destinationCountry: destResult.country || prev.destinationCountry,
         }));
       }
     }
@@ -1381,13 +1395,6 @@ function PackageModal({
   }
 
   async function handleConfirmPost() {
-    setActorError(null);
-    if (!actorAvailable) {
-      setActorError(
-        "Unable to connect. Please check your connection and try again.",
-      );
-      return;
-    }
     await onSubmit(form);
   }
 
@@ -3058,7 +3065,10 @@ export function MoveScreen({
   }
 
   async function handleRegisterRoute(form: RouteForm) {
-    if (!actor) return;
+    if (!actor) {
+      toast.error("Unable to connect. Please try again in a moment.");
+      return;
+    }
     setRouteModalLoading(true);
     try {
       const result = editingRoute
@@ -4458,7 +4468,6 @@ export function MoveScreen({
             onClose={() => setShowPkgModal(false)}
             onSubmit={handlePostPackage}
             isLoading={pkgModalLoading}
-            actorAvailable={actor !== null}
           />
         )}
       </AnimatePresence>

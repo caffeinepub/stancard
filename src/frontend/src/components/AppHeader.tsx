@@ -56,7 +56,7 @@ export function AppHeader({
         {/* Notification Bell — ISSUE 1: wire onClick */}
         <button
           type="button"
-          className="flex items-center justify-center w-9 h-9 rounded-full transition-colors"
+          className="hidden lg:flex items-center justify-center w-9 h-9 rounded-full transition-colors"
           style={{
             border: "1px solid #D4AF37",
             background: "transparent",

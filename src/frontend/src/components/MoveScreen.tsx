@@ -722,9 +722,7 @@ function RouteModal({
 
   function handleFormSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!isGeocoding) {
-      void onSubmit(form);
-    }
+    void onSubmit(form);
   }
 
   if (!open) return null;
@@ -1395,7 +1393,14 @@ function PackageModal({
   }
 
   async function handleConfirmPost() {
-    await onSubmit(form);
+    setActorError(null);
+    try {
+      await onSubmit(form);
+    } catch {
+      setActorError(
+        "Unable to connect. Please check your connection and try again.",
+      );
+    }
   }
 
   if (!open) return null;
@@ -4293,6 +4298,7 @@ export function MoveScreen({
         padding: "20px 16px 32px",
         minHeight: "100%",
         background: "#0A0A0A",
+        overflowY: "auto",
       }}
       data-ocid="move.page"
     >

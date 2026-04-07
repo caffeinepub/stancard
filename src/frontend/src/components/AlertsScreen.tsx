@@ -1159,11 +1159,7 @@ export function AlertsScreen({
   // Determine if everything finished loading and nothing came back
   const allLoaded = !loadingAlerts && !loadingMarket && !loadingVideos;
   const nothingLoaded =
-    allLoaded &&
-    alerts.length === 0 &&
-    !marketData &&
-    videos.length === 0 &&
-    !actor;
+    allLoaded && alerts.length === 0 && !marketData && videos.length === 0;
 
   // ── Render ────────────────────────────────────────────────────────────────────
 

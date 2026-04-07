@@ -530,7 +530,7 @@ export default function App() {
         </AnimatePresence>
 
         <div
-          className="flex-1 flex flex-col overflow-hidden"
+          className="flex-1 flex flex-col overflow-y-auto"
           style={{ paddingTop: "60px", paddingBottom: "64px" }}
         >
           {screenContent}

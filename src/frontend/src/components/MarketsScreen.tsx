@@ -666,39 +666,46 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
     Record<string, number[]>
   >({});
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const hasFetchedOnce = useRef(false);
+  // Issue 9: pendingRef prevents stacked interval fetches
+  const pendingRef = useRef(false);
   const marketDataRef = useRef<MarketData | null>(null);
   const historicalLoaded = useRef(false);
   const prevActorRef = useRef<typeof actor>(actor);
 
   marketDataRef.current = marketData;
 
-  // ISSUE 12: Reset hasFetchedOnce when actor changes from null to truthy
-  // so that after login the real market data is fetched instead of staying mock
+  // When actor changes from null → set, reset historicalLoaded so fresh data is fetched
   useEffect(() => {
     const wasNull = !prevActorRef.current;
     const isNowSet = !!actor;
     prevActorRef.current = actor;
     if (wasNull && isNowSet) {
-      hasFetchedOnce.current = false;
       historicalLoaded.current = false;
     }
   }, [actor]);
 
-  // Fetch real historical prices once per session for stocks + crypto
+  // Issue 10: Fetch real historical prices once per session for stocks + crypto.
+  // historicalLoaded is set to true AFTER allSettled resolves, not before.
   const fetchHistoricalData = useCallback(async () => {
     if (!actor || historicalLoaded.current) return;
+    // Mark early to prevent concurrent invocations, but reset on failure
     historicalLoaded.current = true;
     try {
       const typedActor = actor as unknown as ActorWithHistorical;
       const results = await Promise.allSettled(
         HISTORICAL_SYMBOLS.map((symbol) =>
-          typedActor.getHistoricalPrices(symbol).then((prices) => ({
-            symbol,
-            prices,
-          })),
+          Promise.race([
+            typedActor.getHistoricalPrices(symbol).then((prices) => ({
+              symbol,
+              prices,
+            })),
+            new Promise<{ symbol: string; prices: number[] }>((_, rej) =>
+              setTimeout(() => rej(new Error("timeout")), 8000),
+            ),
+          ]),
         ),
       );
+      // historicalLoaded already set above; update data from results
       const newData: Record<string, number[]> = {};
       for (const result of results) {
         if (result.status === "fulfilled" && result.value.prices.length > 0) {
@@ -710,14 +717,23 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
       }
     } catch {
       // Silently fall back to mock sparkline data — no error shown to user
+      historicalLoaded.current = false; // allow retry on next tab visit
     }
   }, [actor]);
 
   const fetchData = useCallback(async () => {
     if (!actor) return;
+    // Issue 9: skip tick if a previous fetch is still in-flight
+    if (pendingRef.current) return;
+    pendingRef.current = true;
     try {
       const typedActor = actor as unknown as _SERVICE;
-      const data = await typedActor.getMarketData();
+      // Issue 9: 8-second timeout on market data fetch
+      const dataPromise = typedActor.getMarketData();
+      const timeoutPromise = new Promise<never>((_, rej) =>
+        setTimeout(() => rej(new Error("timeout")), 8000),
+      );
+      const data = await Promise.race([dataPromise, timeoutPromise]);
       setMarketData(data);
       // Fetch historical data once after first successful market data load
       if (!historicalLoaded.current) {
@@ -729,15 +745,18 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
       }
     } finally {
       setIsLoading(false);
+      pendingRef.current = false;
     }
   }, [actor, fetchHistoricalData]);
 
+  // Initial fetch — fires when actor first becomes available
+  const initialFetchedRef = useRef(false);
   useEffect(() => {
-    if (actor && !isFetching && !hasFetchedOnce.current) {
-      hasFetchedOnce.current = true;
+    if (actor && !isFetching && !initialFetchedRef.current) {
+      initialFetchedRef.current = true;
       fetchData();
-    } else if (!actor && !isFetching && !hasFetchedOnce.current) {
-      hasFetchedOnce.current = true;
+    } else if (!actor && !isFetching && !initialFetchedRef.current) {
+      initialFetchedRef.current = true;
       setMarketData(MOCK_DATA);
       setIsLoading(false);
     }

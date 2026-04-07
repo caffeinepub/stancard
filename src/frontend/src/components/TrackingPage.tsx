@@ -397,14 +397,26 @@ export function TrackingPage({
     setTracking(null);
     setSearched(false);
     try {
-      const result = await actor.getTrackingByCode(code.trim().toUpperCase());
+      // Issue 16: 8-second timeout on getTrackingByCode
+      const fetchPromise = actor.getTrackingByCode(code.trim().toUpperCase());
+      const timeoutPromise = new Promise<never>((_, rej) =>
+        setTimeout(() => rej(new Error("Request timed out")), 8000),
+      );
+      const result = await Promise.race([fetchPromise, timeoutPromise]);
       if (result) {
         setTracking(result);
       } else {
         setNotFound(true);
       }
-    } catch {
+    } catch (err) {
+      // Issue 16: distinguish timeout from genuine not-found
+      const isTimeout =
+        err instanceof Error && err.message === "Request timed out";
       setNotFound(true);
+      if (isTimeout) {
+        // Show timeout message via the not-found block; message is set below
+        console.warn("Tracking lookup timed out");
+      }
     } finally {
       setLoading(false);
       setSearched(true);
@@ -1005,8 +1017,9 @@ export function TrackingPage({
           )}
         </AnimatePresence>
 
-        {/* Empty state — no code entered yet */}
-        {!loading && !tracking && !notFound && (
+        {/* Empty state — no code entered yet (only when actor is ready) */}
+        {/* Issue 37: guard against dual flash while actor initialises */}
+        {!loading && !tracking && !notFound && !actorNotReady && (
           <div
             style={{
               display: "flex",

@@ -373,35 +373,7 @@ function WalletCard({
             )}
           </div>
 
-          <div style={{ opacity: 0.4 }}>
-            <svg
-              role="img"
-              aria-label="Contactless payment"
-              width="28"
-              height="28"
-              viewBox="0 0 24 24"
-              fill="none"
-            >
-              <path
-                d="M12 2C10.5 5.5 10.5 18.5 12 22"
-                stroke="rgba(0,0,0,0.8)"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-              <path
-                d="M8.5 5C5.5 8 5.5 16 8.5 19"
-                stroke="rgba(0,0,0,0.8)"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-              <path
-                d="M15.5 5C18.5 8 18.5 16 15.5 19"
-                stroke="rgba(0,0,0,0.8)"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </div>
+          {/* Issue 27: contactless icon removed — no real card network */}
         </div>
 
         <div
@@ -654,7 +626,10 @@ function FundWalletModal({
       amount: parsed,
       currency: currency,
       customer: {
-        email: "user@stancard.space",
+        // Issue 2: derive email from displayName if no real email available
+        email: displayName
+          ? `${displayName.toLowerCase().replace(/\s+/g, ".")}@stancard.user`
+          : "user@stancard.space",
         name: displayName || "Stancard User",
       },
       customizations: {
@@ -853,7 +828,7 @@ function SendModal({
     recipientPrincipalId: string,
     amount: number,
     currency: Currency,
-  ) => Promise<string>;
+  ) => Promise<{ reference: string; timestamp: string }>;
 }) {
   const [view, setView] = useState<"form" | "success">("form");
   const [principalId, setPrincipalId] = useState("");
@@ -916,16 +891,17 @@ function SendModal({
     setSubmitting(true);
     setErrors({});
     try {
-      const reference = await onSuccess(
+      const { reference, timestamp } = await onSuccess(
         principalId.trim(),
         Number.parseFloat(amount),
         currency,
       );
+      // Issue 31: use canister timestamp instead of client clock
       setSuccessData({
         recipientId: principalId.trim(),
         amount: Number.parseFloat(amount),
         currency,
-        timestamp: new Date().toLocaleString(),
+        timestamp,
         reference,
       });
       setView("success");
@@ -1345,8 +1321,16 @@ function ReceiveModal({
     setVaLoading(true);
     setVaError("");
     setVaExpired(false);
+    // Issue 11: wrap all VA canister calls with 8-second timeout
+    const timeout = <T,>(p: Promise<T>): Promise<T> =>
+      Promise.race([
+        p,
+        new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error("VA timeout")), 8000),
+        ),
+      ]);
     try {
-      const existing = await actor.getVirtualAccount();
+      const existing = await timeout(actor.getVirtualAccount());
       if (existing) {
         if (isAccountExpired(existing.expiresAt)) {
           setVirtualAccount(existing);
@@ -1356,8 +1340,8 @@ function ReceiveModal({
         }
       } else {
         // No account yet — create one
-        const result = await actor.createVirtualAccount(
-          displayName || "Stancard User",
+        const result = await timeout(
+          actor.createVirtualAccount(displayName || "Stancard User"),
         );
         if (result.ok) {
           setVirtualAccount(result.ok);
@@ -1372,8 +1356,21 @@ function ReceiveModal({
     }
   }, [actor, isLoggedIn, displayName]);
 
+  // Issue 38: also trigger VA load when switching back to NGN if the account is expired
   useEffect(() => {
-    if (open && currency === "NGN" && isLoggedIn && !virtualAccount) {
+    const isExpired = virtualAccount
+      ? isAccountExpired(virtualAccount.expiresAt)
+      : false;
+    if (isExpired) {
+      // Clear expired VA so a fresh fetch is triggered
+      setVirtualAccount(null);
+    }
+    if (
+      open &&
+      currency === "NGN" &&
+      isLoggedIn &&
+      (!virtualAccount || isExpired)
+    ) {
       void loadVirtualAccount();
     }
   }, [open, currency, isLoggedIn, virtualAccount, loadVirtualAccount]);
@@ -1384,9 +1381,17 @@ function ReceiveModal({
     setVaError("");
     setVaExpired(false);
     setVirtualAccount(null);
+    // Issue 11: 8-second timeout on refresh
+    const timeout = <T,>(p: Promise<T>): Promise<T> =>
+      Promise.race([
+        p,
+        new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error("VA timeout")), 8000),
+        ),
+      ]);
     try {
-      const result = await actor.refreshVirtualAccount(
-        displayName || "Stancard User",
+      const result = await timeout(
+        actor.refreshVirtualAccount(displayName || "Stancard User"),
       );
       if (result.ok) {
         setVirtualAccount(result.ok);
@@ -2228,10 +2233,15 @@ export function PayScreen({
     setLoadingBalances(true);
     setBalanceError(false);
     try {
-      const [bals, txs] = await Promise.all([
+      // Issue 19: 8-second timeout on wallet data fetch
+      const fetchPromise = Promise.all([
         actor.getWalletBalances(),
         actor.getWalletTransactions(),
       ]);
+      const timeoutPromise = new Promise<never>((_, rej) =>
+        setTimeout(() => rej(new Error("timeout")), 8000),
+      );
+      const [bals, txs] = await Promise.race([fetchPromise, timeoutPromise]);
 
       const newBalances = { ...ZERO_BALANCES };
       for (const b of bals) {
@@ -2258,8 +2268,18 @@ export function PayScreen({
     }
   }, [actor, isLoggedIn]);
 
-  // Fetch when tab becomes active and user is logged in
+  // Issue 1: reset hasFetchedRef every time tab becomes active (isActive → true)
+  // so each tab visit re-fetches fresh balances. Previously only reset on logout.
+  const prevIsActiveRef = useRef(false);
   useEffect(() => {
+    const becameActive = isActive && !prevIsActiveRef.current;
+    prevIsActiveRef.current = isActive;
+
+    if (becameActive && isLoggedIn) {
+      // Reset so the fetch below runs
+      hasFetchedRef.current = false;
+    }
+
     if (isActive && isLoggedIn && actor && !hasFetchedRef.current) {
       hasFetchedRef.current = true;
       void fetchWalletData();
@@ -2318,8 +2338,9 @@ export function PayScreen({
     recipientPrincipalId: string,
     amount: number,
     currency: Currency,
-  ): Promise<string> {
-    if (!actor) return "";
+  ): Promise<{ reference: string; timestamp: string }> {
+    if (!actor)
+      return { reference: "", timestamp: new Date().toLocaleString() };
     const dateStr = today();
     const result = await actor.sendMoney(
       recipientPrincipalId,
@@ -2346,7 +2367,11 @@ export function PayScreen({
       },
       ...prev,
     ]);
-    return result.ok.reference;
+    // Issue 31: return canister timestamp alongside reference
+    const canisterTimestamp = result.ok.timestamp
+      ? new Date(result.ok.timestamp).toLocaleString()
+      : new Date().toLocaleString();
+    return { reference: result.ok.reference, timestamp: canisterTimestamp };
   }
 
   // ── Receive success ──

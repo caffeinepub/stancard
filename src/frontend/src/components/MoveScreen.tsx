@@ -405,6 +405,8 @@ function LocationSearchInput({
   const [searching, setSearching] = useState(false);
   const [noResults, setNoResults] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Issue 33: AbortController to cancel stale Nominatim fetches on new keystroke
+  const abortRef = useRef<AbortController | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Close dropdown on outside click
@@ -435,20 +437,37 @@ function LocationSearchInput({
     }
 
     debounceRef.current = setTimeout(async () => {
+      // Issue 33: abort previous in-flight request before starting a new one
+      if (abortRef.current) abortRef.current.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       setSearching(true);
       setOpen(true);
       setNoResults(false);
       try {
         const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&limit=5&addressdetails=1`;
-        const res = await fetch(url, { headers: { "Accept-Language": "en" } });
+        const res = await fetch(url, {
+          headers: { "Accept-Language": "en" },
+          signal: controller.signal,
+        });
         const data: NominatimItem[] = await res.json();
-        setResults(data);
-        setNoResults(data.length === 0);
-      } catch {
+        // Only update state if this request wasn't aborted
+        if (!controller.signal.aborted) {
+          setResults(data);
+          setNoResults(data.length === 0);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          // Request was aborted by a newer keystroke — do nothing
+          return;
+        }
         setResults([]);
         setNoResults(true);
       } finally {
-        setSearching(false);
+        if (!controller.signal.aborted) {
+          setSearching(false);
+        }
       }
     }, 300);
   }
@@ -624,8 +643,9 @@ function RouteModal({
     null,
   );
   const [pinStep, setPinStep] = useState<PinStep>("departure");
-  const [geocodingDep, setGeocodingDep] = useState(false);
-  const [geocodingDest, setGeocodingDest] = useState(false);
+  // Issue 13: single geocoding counter prevents dual-pin race condition locking submit
+  const geocodingCountRef = useRef(0);
+  const [geocodingCount, setGeocodingCount] = useState(0);
 
   useEffect(() => {
     if (open) {
@@ -634,8 +654,8 @@ function RouteModal({
       setDepPin(null);
       setDestPin(null);
       setPinStep("departure");
-      setGeocodingDep(false);
-      setGeocodingDest(false);
+      geocodingCountRef.current = 0;
+      setGeocodingCount(0);
     }
   }, [open, initial]);
 
@@ -647,12 +667,14 @@ function RouteModal({
     if (pinStep === "departure") {
       setDepPin({ lat, lng });
       setPinStep("destination");
-      setGeocodingDep(true);
+      geocodingCountRef.current += 1;
+      setGeocodingCount((c) => c + 1);
       let result: { city: string; country: string } | null = null;
       try {
         result = await reverseGeocode(lat, lng);
       } finally {
-        setGeocodingDep(false);
+        geocodingCountRef.current -= 1;
+        setGeocodingCount((c) => c - 1);
       }
       if (result) {
         setForm((prev) => ({
@@ -664,12 +686,14 @@ function RouteModal({
     } else if (pinStep === "destination") {
       setDestPin({ lat, lng });
       setPinStep("done");
-      setGeocodingDest(true);
+      geocodingCountRef.current += 1;
+      setGeocodingCount((c) => c + 1);
       let result2: { city: string; country: string } | null = null;
       try {
         result2 = await reverseGeocode(lat, lng);
       } finally {
-        setGeocodingDest(false);
+        geocodingCountRef.current -= 1;
+        setGeocodingCount((c) => c - 1);
       }
       if (result2) {
         setForm((prev) => ({
@@ -709,7 +733,7 @@ function RouteModal({
   const mapArcs: MapArc[] =
     depPin && destPin ? [{ from: depPin, to: destPin }] : [];
 
-  const isGeocoding = geocodingDep || geocodingDest;
+  const isGeocoding = geocodingCount > 0;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1126,7 +1150,7 @@ function RouteModal({
                     }}
                   />
                   Departure
-                  {geocodingDep && <GeoSpinner />}
+                  {geocodingCount > 0 && <GeoSpinner />}
                 </div>
                 <div
                   style={{
@@ -1186,7 +1210,7 @@ function RouteModal({
                     }}
                   />
                   Destination
-                  {geocodingDest && <GeoSpinner />}
+                  {geocodingCount > 0 && <GeoSpinner />}
                 </div>
                 <div
                   style={{
@@ -1297,8 +1321,9 @@ function PackageModal({
   const [pinStep, setPinStep] = useState<"pickup" | "destination" | "done">(
     "pickup",
   );
-  const [geocodingPickup, setGeocodingPickup] = useState(false);
-  const [geocodingDest, setGeocodingDest] = useState(false);
+  // Issue 13: single geocoding counter prevents dual-pin race condition locking submit
+  const pkgGeoCountRef = useRef(0);
+  const [pkgGeoCount, setPkgGeoCount] = useState(0);
   const [actorError, setActorError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1308,8 +1333,8 @@ function PackageModal({
       setPickupPin(null);
       setDestPin(null);
       setPinStep("pickup");
-      setGeocodingPickup(false);
-      setGeocodingDest(false);
+      pkgGeoCountRef.current = 0;
+      setPkgGeoCount(0);
       setActorError(null);
     }
   }, [open]);
@@ -1322,12 +1347,14 @@ function PackageModal({
     if (pinStep === "pickup") {
       setPickupPin({ lat, lng });
       setPinStep("destination");
-      setGeocodingPickup(true);
+      pkgGeoCountRef.current += 1;
+      setPkgGeoCount((c) => c + 1);
       let pickupResult: { city: string; country: string } | null = null;
       try {
         pickupResult = await reverseGeocode(lat, lng);
       } finally {
-        setGeocodingPickup(false);
+        pkgGeoCountRef.current -= 1;
+        setPkgGeoCount((c) => c - 1);
       }
       if (pickupResult) {
         setForm((prev) => ({
@@ -1340,12 +1367,14 @@ function PackageModal({
     } else if (pinStep === "destination") {
       setDestPin({ lat, lng });
       setPinStep("done");
-      setGeocodingDest(true);
+      pkgGeoCountRef.current += 1;
+      setPkgGeoCount((c) => c + 1);
       let destResult: { city: string; country: string } | null = null;
       try {
         destResult = await reverseGeocode(lat, lng);
       } finally {
-        setGeocodingDest(false);
+        pkgGeoCountRef.current -= 1;
+        setPkgGeoCount((c) => c - 1);
       }
       if (destResult) {
         setForm((prev) => ({
@@ -1385,7 +1414,7 @@ function PackageModal({
   const pkgMapArcs: MapArc[] =
     pickupPin && destPin ? [{ from: pickupPin, to: destPin }] : [];
 
-  const isGeocoding = geocodingPickup || geocodingDest;
+  const isGeocoding = pkgGeoCount > 0;
 
   function handleStep1Submit(e: React.FormEvent) {
     e.preventDefault();
@@ -1802,7 +1831,7 @@ function PackageModal({
                     }}
                   />
                   Pickup
-                  {geocodingPickup && <GeoSpinner />}
+                  {pkgGeoCount > 0 && <GeoSpinner />}
                 </div>
                 <LocationSearchInput
                   value={form.pickupLocation}
@@ -1844,7 +1873,7 @@ function PackageModal({
                     }}
                   />
                   Destination
-                  {geocodingDest && <GeoSpinner />}
+                  {pkgGeoCount > 0 && <GeoSpinner />}
                 </div>
                 <LocationSearchInput
                   value={form.destinationCity}
@@ -2957,6 +2986,7 @@ export function MoveScreen({
   // Browse state
   const [allRoutes, setAllRoutes] = useState<RiderRoute[]>([]);
   const [loadingBrowse, setLoadingBrowse] = useState(true);
+  const [browseError, setBrowseError] = useState(false);
 
   // Modal state
   const [showRouteModal, setShowRouteModal] = useState(false);
@@ -2995,11 +3025,24 @@ export function MoveScreen({
   async function loadAllRoutes() {
     if (!actor) return;
     setLoadingBrowse(true);
+    setBrowseError(false);
+    // Issue 20: 8-second timeout; show error with retry on failure
     try {
-      const data = await actor.getAllRoutes();
-      if (mountedRef.current) setAllRoutes(data);
+      const fetchPromise = actor.getAllRoutes();
+      const data = await Promise.race([
+        fetchPromise,
+        new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error("timeout")), 8000),
+        ),
+      ]);
+      if (mountedRef.current) {
+        setAllRoutes(data);
+      }
     } catch {
-      // silent fail for browse
+      // Issue 20: set error state instead of silently failing
+      if (mountedRef.current) {
+        setBrowseError(true);
+      }
     } finally {
       if (mountedRef.current) setLoadingBrowse(false);
     }
@@ -3132,10 +3175,10 @@ export function MoveScreen({
 
   async function handlePostPackage(form: PackageForm) {
     if (!actor) {
-      toast.error(
+      // Issue 26: throw so PostPackageModal's catch shows error inside modal
+      throw new Error(
         "Unable to connect. Please check your connection and try again.",
       );
-      return;
     }
     setPkgModalLoading(true);
     try {
@@ -4140,6 +4183,33 @@ export function MoveScreen({
               style={{ height: 90, borderRadius: 12, background: "#1A1A1A" }}
             />
           ))}
+        </div>
+      ) : browseError ? (
+        // Issue 20: show retry UI instead of silently failing
+        <div
+          style={{ ...CARD_STYLE, textAlign: "center", padding: 40 }}
+          data-ocid="move.browse.error_state"
+        >
+          <p style={{ color: "#E05252", fontSize: 14, marginBottom: 16 }}>
+            Failed to load riders. Please check your connection and try again.
+          </p>
+          <button
+            type="button"
+            onClick={() => void loadAllRoutes()}
+            style={{
+              background: "rgba(212,175,55,0.1)",
+              border: "1px solid rgba(212,175,55,0.3)",
+              borderRadius: 8,
+              color: "#D4AF37",
+              fontWeight: 600,
+              fontSize: 13,
+              padding: "8px 20px",
+              cursor: "pointer",
+            }}
+            data-ocid="move.browse.retry.button"
+          >
+            Retry
+          </button>
         </div>
       ) : allRoutes.length === 0 ? (
         <div

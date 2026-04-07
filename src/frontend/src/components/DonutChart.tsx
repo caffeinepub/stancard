@@ -1,14 +1,5 @@
-// ISSUE 8: DonutChart now accepts real wallet balances and isLoggedIn prop.
-// When logged in with balances it shows currency allocation;
-// when logged out or no balances it shows a placeholder.
-
-const USD_RATES: Record<string, number> = {
-  NGN: 1 / 1600,
-  USD: 1,
-  EUR: 1.09,
-  GBP: 1.27,
-  CNY: 0.138,
-};
+// Issue 22+23: USD_RATES moved to shared fxRates.ts to eliminate duplication.
+import { USD_RATES } from "../utils/fxRates";
 
 const CURRENCY_COLORS: Record<string, string> = {
   NGN: "#D4AF37",
@@ -21,16 +12,25 @@ const CURRENCY_COLORS: Record<string, string> = {
 export interface DonutChartProps {
   balances?: { currency: string; amount: number }[];
   isLoggedIn?: boolean;
+  /** Optional live USD rates keyed by currency symbol. Falls back to static rates if omitted. */
+  liveRates?: Record<string, number>;
 }
 
-export function DonutChart({ balances, isLoggedIn }: DonutChartProps) {
+export function DonutChart({
+  balances,
+  isLoggedIn,
+  liveRates,
+}: DonutChartProps) {
   const size = 120;
   const cx = size / 2;
   const cy = size / 2;
   const outerR = 52;
   const innerR = 30;
 
-  // ─── Logged-out or no data placeholder ───────────────────────────────────
+  // Merge live rates over static fallback rates
+  const rates = liveRates ? { ...USD_RATES, ...liveRates } : USD_RATES;
+
+  // ─── Logged-out or no data placeholder ───────────────────────────────────────
   if (!isLoggedIn || !balances || balances.length === 0) {
     return (
       <div className="flex items-center gap-6">
@@ -99,10 +99,10 @@ export function DonutChart({ balances, isLoggedIn }: DonutChartProps) {
     );
   }
 
-  // ─── Compute segments from real balances ───────────────────────────────
+  // ─── Compute segments from real balances ─────────────────────────────────────
   const usdValues = balances.map((b) => ({
     currency: b.currency,
-    usd: b.amount * (USD_RATES[b.currency] ?? 1),
+    usd: b.amount * (rates[b.currency] ?? 1),
   }));
   const total = usdValues.reduce((s, v) => s + v.usd, 0);
 

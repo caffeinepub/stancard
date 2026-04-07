@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { NewsArticle } from "../declarations/backend.did.d.ts";
 import type { _SERVICE } from "../declarations/backend.did.d.ts";
 import { useActor } from "../hooks/useActor";
+// Issue 22+23: use shared fxRates to eliminate duplication with DonutChart
+import { USD_RATES } from "../utils/fxRates";
 import { DonutChart } from "./DonutChart";
 import {
   ArticlePreviewModal,
@@ -10,7 +12,7 @@ import {
   getArticleCategory,
 } from "./NewsSection";
 
-// ─── Mock fallback news ───────────────────────────────────────────────────────
+// ─── Mock fallback news ─────────────────────────────────────────────────────────────────────────────────────
 
 const MOCK_ARTICLES: NewsArticle[] = [
   {
@@ -60,23 +62,13 @@ const MOCK_ARTICLES: NewsArticle[] = [
   },
 ];
 
-// ─── Static data (removed hardcoded activityItems — ISSUE 6) ────────────────────────────────
-
-// ─── Currency to USD conversion rates ────────────────────────────────────────
-const USD_RATES: Record<string, number> = {
-  NGN: 1 / 1600,
-  USD: 1,
-  EUR: 1.09,
-  GBP: 1.27,
-  CNY: 0.138,
-};
-
+// ─── Currency to USD conversion (uses shared fxRates) ──────────────────────────────────────────
 function toUSD(amount: number, currency: string): number {
   const rate = USD_RATES[currency] ?? 1;
   return amount * rate;
 }
 
-// ─── Actor type (minimal subset needed here) ─────────────────────────────────
+// ─── Actor type (minimal subset needed here) ──────────────────────────────────────────────────────
 interface WalletTransaction {
   id: string;
   txType: string;
@@ -99,7 +91,7 @@ const CURRENCY_SYMBOL_MAP: Record<string, string> = {
   CNY: "¥",
 };
 
-// ─── Helper ─────────────────────────────────────────────────────────────────────────────
+// ─── Helper ───────────────────────────────────────────────────────────────────────────────────────────
 function timeAgo(isoString: string): string {
   if (!isoString) return "";
   try {
@@ -124,7 +116,7 @@ function formatUSD(value: number): string {
   });
 }
 
-// ─── Sub-components ─────────────────────────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────────────────────────────
 function SparkLine() {
   return (
     <svg
@@ -171,7 +163,123 @@ function HeadlineSkeletonRow() {
   );
 }
 
-// ─── Props ───────────────────────────────────────────────────────────────────────────
+// ─── Issue 30: Top Headlines extracted into a single shared component ───────────────────────
+// Previously duplicated in both mobile and desktop sections.
+function TopHeadlines({
+  articles,
+  isLoading,
+  onOpen,
+  onExplore,
+  variant = "mobile",
+}: {
+  articles: NewsArticle[];
+  isLoading: boolean;
+  onOpen: (article: NewsArticle) => void;
+  onExplore: () => void;
+  variant?: "mobile" | "sidebar";
+}) {
+  const titleSize =
+    variant === "sidebar" ? "text-sm lg:text-base" : "text-base";
+
+  return (
+    <>
+      <div
+        className="flex items-center justify-between"
+        style={{ marginBottom: variant === "sidebar" ? 0 : 12 }}
+      >
+        <h2
+          className={`${titleSize} font-semibold`}
+          style={{ color: "#D4AF37" }}
+        >
+          Top Headlines
+        </h2>
+        <button
+          type="button"
+          onClick={onExplore}
+          className="flex items-center gap-1 text-xs font-semibold transition-opacity active:opacity-60"
+          style={{ color: "#D4AF37" }}
+          data-ocid="headlines.link"
+        >
+          Explore <ArrowRight size={12} />
+        </button>
+      </div>
+
+      <div
+        className="rounded-xl overflow-hidden"
+        style={{ border: "1px solid #1A1A1A" }}
+        data-ocid="headlines.list"
+      >
+        {isLoading ? (
+          <>
+            <HeadlineSkeletonRow />
+            <HeadlineSkeletonRow />
+            <HeadlineSkeletonRow />
+          </>
+        ) : articles.length === 0 ? (
+          <div
+            className="px-4 py-6 text-center"
+            style={{ background: "#0F0F0F" }}
+            data-ocid="headlines.empty_state"
+          >
+            <p className="text-xs" style={{ color: "#6C6C6C" }}>
+              No headlines available
+            </p>
+          </div>
+        ) : (
+          articles.map((article, index) => (
+            <button
+              key={`${article.url}-${index}`}
+              type="button"
+              onClick={() => onOpen(article)}
+              className="w-full flex items-center gap-3 px-4 py-3.5 activity-row transition-colors text-left"
+              style={{
+                background: "#0F0F0F",
+                borderBottom:
+                  index < articles.length - 1 ? "1px solid #1A1A1A" : "none",
+              }}
+              data-ocid={`headlines.item.${index + 1}`}
+            >
+              <span
+                className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded-full flex-shrink-0"
+                style={{
+                  background: "#1A1400",
+                  border: "1px solid #2A2000",
+                  color: "#D4AF37",
+                  maxWidth: "64px",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {article.source}
+              </span>
+              <p
+                className="flex-1 text-xs font-medium min-w-0"
+                style={{
+                  color: "#E8E8E8",
+                  overflow: "hidden",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical" as const,
+                }}
+              >
+                {article.title}
+              </p>
+              <span
+                className="text-[10px] flex-shrink-0"
+                style={{ color: "#6C6C6C" }}
+              >
+                {timeAgo(article.publishedAt)}
+              </span>
+            </button>
+          ))
+        )}
+      </div>
+    </>
+  );
+}
+
+// ─── Props ───────────────────────────────────────────────────────────────────────────────────────────────
 interface HomeScreenProps {
   hideBalance?: boolean;
   isLoggedIn?: boolean;
@@ -180,7 +288,7 @@ interface HomeScreenProps {
   identity?: unknown;
 }
 
-// ─── Main HomeScreen ──────────────────────────────────────────────────────────────────
+// ─── Main HomeScreen ──────────────────────────────────────────────────────────────────────────────────────
 export function HomeScreen({
   hideBalance = false,
   isLoggedIn = false,
@@ -200,17 +308,17 @@ export function HomeScreen({
   const articlesRef = useRef<NewsArticle[]>([]);
   articlesRef.current = articles;
 
-  // ─── Wallet balance state ─────────────────────────────────────────────────
+  // ─── Wallet balance state ──────────────────────────────────────────────────────────────────────
   const [walletBalances, setWalletBalances] = useState<
     { currency: string; amount: number }[]
   >([]);
   const [balancesLoading, setBalancesLoading] = useState(false);
 
-  // ISSUE 6: Recent transactions state
+  // Recent transactions state
   const [recentTxs, setRecentTxs] = useState<WalletTransaction[]>([]);
   const [txLoading, setTxLoading] = useState(false);
 
-  // Fetch wallet balances and recent transactions when logged in and actor is available
+  // Issue 8: wrap wallet Promise.all with an 8-second timeout
   // biome-ignore lint/correctness/useExhaustiveDependencies: identity used to detect login change
   useEffect(() => {
     if (!isLoggedIn || !walletActor) {
@@ -221,21 +329,26 @@ export function HomeScreen({
     let cancelled = false;
     setBalancesLoading(true);
     setTxLoading(true);
-    // Run both in parallel
-    Promise.all([
+
+    const walletFetch = Promise.all([
       walletActor
         .getWalletBalances()
         .catch(() => [] as { currency: string; amount: number }[]),
       walletActor.getWalletTransactions
         ? (walletActor as any).getWalletTransactions().catch(() => [])
         : Promise.resolve([]),
-    ])
+    ]);
+
+    const timeout = new Promise<
+      [{ currency: string; amount: number }[], WalletTransaction[]]
+    >((resolve) => setTimeout(() => resolve([[], []]), 8000));
+
+    Promise.race([walletFetch, timeout])
       .then(([balances, txs]) => {
         if (!cancelled) {
-          setWalletBalances(balances);
+          setWalletBalances(balances as { currency: string; amount: number }[]);
           setBalancesLoading(false);
           const allTxs = txs as WalletTransaction[];
-          // Take last 3 entries (most recent at end of array)
           setRecentTxs(allTxs.slice(-3).reverse());
           setTxLoading(false);
         }
@@ -252,7 +365,7 @@ export function HomeScreen({
     };
   }, [isLoggedIn, walletActor, identity]);
 
-  // ─── Compute portfolio figures ───────────────────────────────────────────
+  // ─── Compute portfolio figures ─────────────────────────────────────────────────────────────────────
   const totalPortfolioUSD = walletBalances.reduce((sum, b) => {
     return sum + toUSD(b.amount, b.currency);
   }, 0);
@@ -260,11 +373,22 @@ export function HomeScreen({
   const usdBalance =
     walletBalances.find((b) => b.currency === "USD")?.amount ?? 0;
 
+  // Issue 17: isFetchingRef guards against concurrent fetchNews calls
+  const isFetchingNewsRef = useRef(false);
+
   const fetchNews = useCallback(async () => {
     if (!actor) return;
+    // Issue 17: deduplicate concurrent calls
+    if (isFetchingNewsRef.current) return;
+    isFetchingNewsRef.current = true;
     try {
       const typedActor = actor as unknown as _SERVICE;
-      const data = await typedActor.getNewsData();
+      // Issue 7: wrap getNewsData with 8-second timeout
+      const fetchPromise = typedActor.getNewsData();
+      const timeoutPromise = new Promise<never>((_, rej) =>
+        setTimeout(() => rej(new Error("timeout")), 8000),
+      );
+      const data = await Promise.race([fetchPromise, timeoutPromise]);
       if (data.success && data.articles.length > 0) {
         setArticles(data.articles);
       } else if (articlesRef.current.length === 0) {
@@ -276,10 +400,10 @@ export function HomeScreen({
       }
     } finally {
       setIsNewsLoading(false);
+      isFetchingNewsRef.current = false;
     }
   }, [actor]);
 
-  // ISSUE 11: removed hasFetchedRef one-shot guard so news refreshes on every mount
   useEffect(() => {
     if (actor && !isFetching) {
       fetchNews();
@@ -310,7 +434,7 @@ export function HomeScreen({
     setSelectedArticle(null);
   }
 
-  // ─── Welcome message logic ────────────────────────────────────────────────
+  // ─── Welcome message logic ────────────────────────────────────────────────────────────────────────────────
   function renderWelcomeHeading() {
     if (isLoggedIn && displayName) {
       return (
@@ -342,7 +466,7 @@ export function HomeScreen({
     );
   }
 
-  // ─── Portfolio card balance area ─────────────────────────────────────────
+  // ─── Portfolio card balance area ─────────────────────────────────────────────────────────────────────
   function renderPortfolioBalance() {
     if (!isLoggedIn) {
       return (
@@ -450,7 +574,7 @@ export function HomeScreen({
         )}
       </section>
 
-      {/* Recent Activity — ISSUE 6: real canister transactions */}
+      {/* Recent Activity */}
       <section
         className="mb-6 animate-fade-in"
         style={{ animationDelay: "160ms" }}
@@ -604,105 +728,27 @@ export function HomeScreen({
     </>
   );
 
+  // Issue 30: sidebarContent uses shared <TopHeadlines> component
   const sidebarContent = (
     <>
-      {/* Top Headlines - desktop sidebar */}
       <div
         className="rounded-xl overflow-hidden mb-6 animate-fade-in"
         style={{ border: "1px solid #1A1A1A", animationDelay: "120ms" }}
         data-ocid="headlines.section"
       >
         <div
-          className="flex items-center justify-between px-4 py-3"
+          className="px-4 py-3"
           style={{ borderBottom: "1px solid #1A1A1A" }}
         >
-          <h2
-            className="text-sm lg:text-base font-semibold"
-            style={{ color: "#D4AF37" }}
-          >
-            Top Headlines
-          </h2>
-          <button
-            type="button"
-            onClick={() =>
+          <TopHeadlines
+            articles={topHeadlines}
+            isLoading={isNewsLoading}
+            onOpen={openArticle}
+            onExplore={() =>
               exploreRef.current?.scrollIntoView({ behavior: "smooth" })
             }
-            className="flex items-center gap-1 text-xs font-semibold transition-opacity active:opacity-60"
-            style={{ color: "#D4AF37" }}
-            data-ocid="headlines.link"
-          >
-            Explore <ArrowRight size={12} />
-          </button>
-        </div>
-
-        <div data-ocid="headlines.list">
-          {isNewsLoading ? (
-            <>
-              <HeadlineSkeletonRow />
-              <HeadlineSkeletonRow />
-              <HeadlineSkeletonRow />
-            </>
-          ) : topHeadlines.length === 0 ? (
-            <div
-              className="px-4 py-6 text-center"
-              style={{ background: "#0F0F0F" }}
-              data-ocid="headlines.empty_state"
-            >
-              <p className="text-xs" style={{ color: "#6C6C6C" }}>
-                No headlines available
-              </p>
-            </div>
-          ) : (
-            topHeadlines.map((article, index) => (
-              <button
-                key={`${article.url}-${index}`}
-                type="button"
-                onClick={() => openArticle(article)}
-                className="w-full flex items-center gap-3 px-4 py-3.5 activity-row transition-colors text-left"
-                style={{
-                  background: "#0F0F0F",
-                  borderBottom:
-                    index < topHeadlines.length - 1
-                      ? "1px solid #1A1A1A"
-                      : "none",
-                }}
-                data-ocid={`headlines.item.${index + 1}`}
-              >
-                <span
-                  className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded-full flex-shrink-0"
-                  style={{
-                    background: "#1A1400",
-                    border: "1px solid #2A2000",
-                    color: "#D4AF37",
-                    maxWidth: "64px",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {article.source}
-                </span>
-                <p
-                  className="flex-1 text-xs font-medium min-w-0"
-                  style={{
-                    color: "#E8E8E8",
-                    overflow: "hidden",
-                    display: "-webkit-box",
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: "vertical" as const,
-                  }}
-                >
-                  {article.title}
-                </p>
-                <span
-                  className="text-[10px] flex-shrink-0"
-                  style={{ color: "#6C6C6C" }}
-                >
-                  {timeAgo(article.publishedAt)}
-                </span>
-              </button>
-            ))
-          )}
+            variant="sidebar"
+          />
         </div>
       </div>
     </>
@@ -712,99 +758,21 @@ export function HomeScreen({
     <main className="flex-1 overflow-y-auto px-5 pt-4 pb-4 lg:overflow-visible">
       {/* Mobile: single column */}
       <div className="lg:hidden">
-        {/* Top Headlines (mobile only) */}
+        {/* Issue 30: use shared TopHeadlines component */}
         <section
           className="mb-6 animate-fade-in"
           style={{ animationDelay: "120ms" }}
           data-ocid="headlines.section"
         >
-          <div className="flex items-center justify-between mb-3">
-            <h2
-              className="text-base font-semibold"
-              style={{ color: "#D4AF37" }}
-            >
-              Top Headlines
-            </h2>
-            <button
-              type="button"
-              onClick={() =>
-                exploreRef.current?.scrollIntoView({ behavior: "smooth" })
-              }
-              className="flex items-center gap-1 text-xs font-semibold transition-opacity active:opacity-60"
-              style={{ color: "#D4AF37" }}
-              data-ocid="headlines.link"
-            >
-              Explore <ArrowRight size={12} />
-            </button>
-          </div>
-
-          <div
-            className="rounded-xl overflow-hidden"
-            style={{ border: "1px solid #1A1A1A" }}
-            data-ocid="headlines.list"
-          >
-            {isNewsLoading ? (
-              <>
-                <HeadlineSkeletonRow />
-                <HeadlineSkeletonRow />
-                <HeadlineSkeletonRow />
-              </>
-            ) : topHeadlines.length === 0 ? (
-              <div
-                className="px-4 py-6 text-center"
-                style={{ background: "#0F0F0F" }}
-                data-ocid="headlines.empty_state"
-              >
-                <p className="text-xs" style={{ color: "#6C6C6C" }}>
-                  No headlines available
-                </p>
-              </div>
-            ) : (
-              topHeadlines.map((article, index) => (
-                <button
-                  key={`${article.url}-${index}`}
-                  type="button"
-                  onClick={() => openArticle(article)}
-                  className="w-full flex items-center gap-3 px-4 py-3.5 activity-row transition-colors text-left"
-                  style={{
-                    background: "#0F0F0F",
-                    borderBottom:
-                      index < topHeadlines.length - 1
-                        ? "1px solid #1A1A1A"
-                        : "none",
-                  }}
-                  data-ocid={`headlines.item.${index + 1}`}
-                >
-                  <span
-                    className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded-full flex-shrink-0"
-                    style={{
-                      background: "#1A1400",
-                      border: "1px solid #2A2000",
-                      color: "#D4AF37",
-                      maxWidth: "64px",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {article.source}
-                  </span>
-                  <p
-                    className="flex-1 text-xs font-medium truncate min-w-0"
-                    style={{ color: "#E8E8E8" }}
-                  >
-                    {article.title}
-                  </p>
-                  <span
-                    className="text-[10px] flex-shrink-0"
-                    style={{ color: "#6C6C6C" }}
-                  >
-                    {timeAgo(article.publishedAt)}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
+          <TopHeadlines
+            articles={topHeadlines}
+            isLoading={isNewsLoading}
+            onOpen={openArticle}
+            onExplore={() =>
+              exploreRef.current?.scrollIntoView({ behavior: "smooth" })
+            }
+            variant="mobile"
+          />
         </section>
 
         {heroAndFeed}

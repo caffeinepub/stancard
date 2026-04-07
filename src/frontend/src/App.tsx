@@ -263,6 +263,9 @@ export default function App() {
     hideTransactions,
   };
 
+  // Issue 28: guard to prevent preference sync double-firing within the same login session
+  const syncDoneRef = useRef(false);
+
   function setHideBalance(v: boolean) {
     setHideBalanceState(v);
     localStorage.setItem("stancard_hide_balance", JSON.stringify(v));
@@ -325,11 +328,25 @@ export default function App() {
   }
 
   // ── Preference sync on login ──
+  // Issue 28: removed `actor` from deps; sync only fires on identity change (login/logout),
+  // not on every actor re-instantiation. syncDoneRef prevents double execution.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — actor accessed via closure, not dep
   useEffect(() => {
     const wasLoggedOut = !prevIdentityRef.current;
     const isNowLoggedIn = !!identity;
     prevIdentityRef.current = identity;
+
+    // On logout, reset syncDoneRef so next login syncs again
+    if (!isNowLoggedIn) {
+      syncDoneRef.current = false;
+      return;
+    }
+
     if (!wasLoggedOut || !isNowLoggedIn || !actor) return;
+    // Guard: only sync once per login session
+    if (syncDoneRef.current) return;
+    syncDoneRef.current = true;
+
     const prefs = prefsRef.current;
     void (async () => {
       try {
@@ -370,7 +387,7 @@ export default function App() {
         console.error("Profile sync failed:", err);
       }
     })();
-  }, [identity, actor]);
+  }, [identity]);
 
   async function onSaveDisplayName(name: string) {
     setDisplayName(name);
@@ -419,6 +436,8 @@ export default function App() {
     }
   }
 
+  // Issue 18: screenContent rendered ONCE. CSS handles mobile vs desktop layout.
+  // Both layout containers share this single instance — no duplicate effects.
   const screenContent = (
     <>
       {activeTab === "home" && (
@@ -529,6 +548,7 @@ export default function App() {
           )}
         </AnimatePresence>
 
+        {/* Issue 35: overflow-y:auto only on the innermost scrollable container */}
         <div
           className="flex-1 flex flex-col overflow-y-auto"
           style={{ paddingTop: "60px", paddingBottom: "64px" }}
@@ -660,7 +680,7 @@ export default function App() {
   );
 }
 
-// ─── Alert Banner Toast (shared mobile + desktop) ────────────────────────────────────────────
+// ─── Alert Banner Toast (shared mobile + desktop) ───────────────────────────────────────────────────────────────────────────────────────
 function AlertBannerToast({
   banner,
   onClose,

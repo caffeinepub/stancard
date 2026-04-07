@@ -214,7 +214,7 @@ export function ArticlePreviewModal({
             className="w-full overflow-y-auto"
             style={{
               maxWidth: "430px",
-              maxHeight: "85vh",
+              maxHeight: "calc(85dvh - env(safe-area-inset-bottom, 0px))",
               background: "#111111",
               borderRadius: "20px 20px 0 0",
               borderTop: "1px solid #2A2000",

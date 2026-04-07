@@ -947,6 +947,8 @@ export function AlertsScreen({
   const [selectedVideo, setSelectedVideo] = useState<YouTubeVideo | null>(null);
   // Tracks whether the initial load has been attempted at least once
   const loadAttemptedRef = useRef(false);
+  // Issue 32: loadIdRef prevents stale loadAll from applying after tab switch
+  const loadIdRef = useRef(0);
 
   // Keep a ref to latest alerts for the interval callback
   const alertsRef = useRef<Alert[]>([]);
@@ -979,6 +981,9 @@ export function AlertsScreen({
 
   // Core load function — called on initial tab open and on manual refresh
   const loadAll = useCallback(async () => {
+    // Issue 32: capture this load's ID to cancel stale executions
+    const myId = ++loadIdRef.current;
+
     setLoadingAlerts(true);
     setLoadingMarket(true);
     setLoadingVideos(true);
@@ -997,6 +1002,9 @@ export function AlertsScreen({
       withTimeout(actor.getMarketData(), null as MarketData | null),
     ]);
 
+    // Issue 32: bail if a newer loadAll has started
+    if (loadIdRef.current !== myId) return;
+
     setAlerts(alertData);
     setLoadingAlerts(false);
 
@@ -1011,6 +1019,8 @@ export function AlertsScreen({
       actor.getYouTubeVideosByQuery(q),
       [] as YouTubeVideo[],
     );
+
+    if (loadIdRef.current !== myId) return;
     setVideos(videoData.slice(0, 6));
     setLoadingVideos(false);
   }, [actor]);
@@ -1042,28 +1052,29 @@ export function AlertsScreen({
       );
 
       for (const alert of activeUntriggered) {
-        let currentPrice: number | null = null;
+        // Issue 21: guard each alert individually so one malformed alert doesn't break the loop
+        try {
+          let currentPrice: number | null = null;
 
-        if (alert.assetType === "stock") {
-          const match = currentMarketData.stocks.find(
-            (s) => s.symbol === alert.symbol,
-          );
-          if (match) currentPrice = match.price;
-        } else if (alert.assetType === "crypto") {
-          const match = currentMarketData.crypto.find(
-            (c) => c.symbol === alert.symbol,
-          );
-          if (match) currentPrice = match.price;
-        }
+          if (alert.assetType === "stock") {
+            const match = currentMarketData.stocks.find(
+              (s) => s.symbol === alert.symbol,
+            );
+            if (match) currentPrice = match.price;
+          } else if (alert.assetType === "crypto") {
+            const match = currentMarketData.crypto.find(
+              (c) => c.symbol === alert.symbol,
+            );
+            if (match) currentPrice = match.price;
+          }
 
-        if (currentPrice === null) continue;
+          if (currentPrice === null) continue;
 
-        const shouldTrigger =
-          (alert.condition === "above" && currentPrice > alert.targetPrice) ||
-          (alert.condition === "below" && currentPrice < alert.targetPrice);
+          const shouldTrigger =
+            (alert.condition === "above" && currentPrice > alert.targetPrice) ||
+            (alert.condition === "below" && currentPrice < alert.targetPrice);
 
-        if (shouldTrigger) {
-          try {
+          if (shouldTrigger) {
             await withTimeout(actor.markAlertTriggered(alert.id), false);
             setAlerts((prev) =>
               prev.map((a) =>
@@ -1071,9 +1082,9 @@ export function AlertsScreen({
               ),
             );
             onAlertTriggered({ ...alert, isTriggered: true });
-          } catch {
-            // silently fail
           }
+        } catch (err) {
+          console.error("Alert check error for", alert.id, err);
         }
       }
     },
@@ -1085,6 +1096,7 @@ export function AlertsScreen({
     if (!isActive || !actor) return;
 
     const interval = setInterval(async () => {
+      // Issue 21: outer try/catch ensures interval never dies silently
       try {
         const freshMarket = await withTimeout(
           actor.getMarketData(),
@@ -1092,10 +1104,14 @@ export function AlertsScreen({
         );
         if (freshMarket) {
           setMarketData(freshMarket);
-          await checkAlerts(freshMarket);
+          try {
+            await checkAlerts(freshMarket);
+          } catch (err) {
+            console.error("checkAlerts error:", err);
+          }
         }
-      } catch {
-        // silently fail
+      } catch (err) {
+        console.error("Market data interval error:", err);
       }
     }, 60_000);
 
@@ -1106,20 +1122,27 @@ export function AlertsScreen({
 
   async function handleToggle(id: string, active: boolean) {
     if (!actor) return;
+    // Issue 12: optimistic update first, revert on failure
+    setAlerts((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, isActive: active } : a)),
+    );
     try {
-      await actor.updateAlert(id, active);
-      setAlerts((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, isActive: active } : a)),
-      );
+      await withTimeout(actor.updateAlert(id, active), false);
     } catch {
-      // silently fail
+      // Issue 12: revert optimistic update and show error
+      setAlerts((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, isActive: !active } : a)),
+      );
+      import("sonner").then(({ toast }) =>
+        toast.error("Failed to update alert. Please try again."),
+      );
     }
   }
 
   async function handleDelete(id: string) {
     if (!actor) return;
     try {
-      await actor.deleteAlert(id);
+      await withTimeout(actor.deleteAlert(id), false);
       setAlerts((prev) => {
         const updated = prev.filter((a) => a.id !== id);
         const newQuery = deriveYouTubeQuery(updated);
@@ -1131,7 +1154,10 @@ export function AlertsScreen({
         return updated;
       });
     } catch {
-      // silently fail
+      // Issue 12: show error — don't silently fail
+      import("sonner").then(({ toast }) =>
+        toast.error("Failed to delete alert. Please try again."),
+      );
     }
   }
 
@@ -1158,8 +1184,15 @@ export function AlertsScreen({
 
   // Determine if everything finished loading and nothing came back
   const allLoaded = !loadingAlerts && !loadingMarket && !loadingVideos;
+  // Issue 25: nothingLoaded only triggers for logged-out users (actor is null).
+  // A logged-in user with no alerts should see the alert creation UI, not the empty state.
+  const isLoggedIn = !!rawActor;
   const nothingLoaded =
-    allLoaded && alerts.length === 0 && !marketData && videos.length === 0;
+    allLoaded &&
+    !isLoggedIn &&
+    alerts.length === 0 &&
+    !marketData &&
+    videos.length === 0;
 
   // ── Render ────────────────────────────────────────────────────────────────────
 

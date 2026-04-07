@@ -6,22 +6,33 @@ export async function forwardGeocode(
 ): Promise<{ lat: number; lng: number } | null> {
   const key = location.trim().toLowerCase();
   if (geocodeCache.has(key)) return geocodeCache.get(key)!;
-  try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`;
-    const res = await fetch(url, { headers: { "Accept-Language": "en" } });
-    const data = await res.json();
-    const result = data[0]
-      ? {
-          lat: Number.parseFloat(data[0].lat),
-          lng: Number.parseFloat(data[0].lon),
-        }
-      : null;
-    geocodeCache.set(key, result);
-    return result;
-  } catch {
-    geocodeCache.set(key, null);
-    return null;
-  }
+
+  // Issue 15: forwardGeocode now has the same 8-second timeout as reverseGeocode
+  const actualFetch = fetch(
+    `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`,
+    { headers: { "Accept-Language": "en" } },
+  )
+    .then(async (res) => {
+      const data = await res.json();
+      const result = data[0]
+        ? {
+            lat: Number.parseFloat(data[0].lat),
+            lng: Number.parseFloat(data[0].lon),
+          }
+        : null;
+      geocodeCache.set(key, result);
+      return result;
+    })
+    .catch(() => {
+      geocodeCache.set(key, null);
+      return null;
+    });
+
+  const timeoutPromise = new Promise<null>((resolve) =>
+    setTimeout(() => resolve(null), 8000),
+  );
+
+  return Promise.race([actualFetch, timeoutPromise]);
 }
 
 export async function reverseGeocode(

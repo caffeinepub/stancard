@@ -333,6 +333,43 @@ export default function App() {
     localStorage.setItem("stancard_a2hs_dismissed", "1");
   }
 
+  // ── Admin check: fires when BOTH actor AND identity are ready ──
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — actor and identity are the required deps
+  useEffect(() => {
+    if (!actor || !identity) {
+      setIsAdmin(false);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await Promise.race([
+          actor.isAdminCaller(),
+          new Promise<boolean>((_, reject) =>
+            setTimeout(() => reject(new Error("timeout")), 8000),
+          ),
+        ]);
+        if (!cancelled) setIsAdmin(Boolean(result));
+      } catch {
+        // Retry once after 2s
+        setTimeout(async () => {
+          if (cancelled) return;
+          try {
+            const result = await actor.isAdminCaller();
+            if (!cancelled) setIsAdmin(Boolean(result));
+          } catch {
+            /* silent */
+          }
+        }, 2000);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [actor, identity]);
+
   // ── Preference sync on login ──
   // Issue 28: removed `actor` from deps; sync only fires on identity change (login/logout),
   // not on every actor re-instantiation. syncDoneRef prevents double execution.
@@ -356,19 +393,6 @@ export default function App() {
 
     const prefs = prefsRef.current;
     void (async () => {
-      // Check admin status (8s timeout, fails silently)
-      try {
-        const adminResult = await Promise.race([
-          actor.isAdminCaller(),
-          new Promise<boolean>((resolve) =>
-            setTimeout(() => resolve(false), 8000),
-          ),
-        ]);
-        setIsAdmin(adminResult);
-      } catch {
-        setIsAdmin(false);
-      }
-
       try {
         const profile = await actor.getUserProfile();
         if (profile) {

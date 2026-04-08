@@ -2,12 +2,14 @@ import {
   ArrowDownRight,
   ArrowLeftRight,
   ArrowUpRight,
+  BookOpen,
   RefreshCw,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useActor } from "../hooks/useActor";
 import { updateLiveRates } from "../utils/fxRates";
+import { LearnSection } from "./LearnSection";
 import {
   ExpandedChartModal,
   Sparkline,
@@ -49,6 +51,7 @@ type ActorWithMarket = {
 
 type ActorWithHistorical = {
   getHistoricalPrices: (symbol: string) => Promise<number[]>;
+  getHistoricalForex: (symbol: string) => Promise<number[]>;
 };
 
 // ─── Mock fallback data ─────────────────────────────────────────────────────
@@ -165,6 +168,15 @@ const HISTORICAL_SYMBOLS = [
   "ETH",
   "BNB",
 ];
+
+// Forex symbols that map to FMP historical pairs (USD is base — no sparkline)
+const FOREX_HISTORICAL_MAP: Record<string, string> = {
+  EUR: "EURUSD",
+  GBP: "GBPUSD",
+  CNY: "CNYUSD",
+  JPY: "JPYUSD",
+  NGN: "NGNUSD",
+};
 
 const ALL_CURRENCIES = [
   "USD",
@@ -371,11 +383,22 @@ function StockCard({
   );
 }
 
-function ForexCard({ forex, onTap }: { forex: ForexRate; onTap: () => void }) {
+function ForexCard({
+  forex,
+  onTap,
+  historicalData,
+}: {
+  forex: ForexRate;
+  onTap: () => void;
+  historicalData?: number[];
+}) {
   const flag = FOREX_FLAGS[forex.symbol] ?? "";
   const isBase = forex.symbol === "USD";
   const [hovered, setHovered] = useState(false);
-  const sparkData = generateSparklineData(forex.symbol, forex.rate, 0);
+  const sparkData =
+    historicalData && historicalData.length > 0
+      ? historicalData
+      : generateSparklineData(forex.symbol, forex.rate, 0);
 
   return (
     <button
@@ -500,9 +523,11 @@ function CryptoCard({
 function CurrencyConverter({
   forex,
   crypto,
+  isLive,
 }: {
   forex: ForexRate[];
   crypto: CryptoQuote[];
+  isLive?: boolean;
 }) {
   const [fromCurrency, setFromCurrency] = useState("USD");
   const [toCurrency, setToCurrency] = useState("NGN");
@@ -534,12 +559,30 @@ function CurrencyConverter({
       style={{ background: "#0F0F0F", border: "1px solid #1A1A1A" }}
       data-ocid="converter.panel"
     >
-      <h3
-        className="text-[10px] font-bold uppercase tracking-widest mb-4"
-        style={{ color: "#D4AF37", letterSpacing: "0.14em" }}
-      >
-        Currency Converter
-      </h3>
+      <div className="flex items-center gap-2 mb-4">
+        <h3
+          className="text-[10px] font-bold uppercase tracking-widest"
+          style={{ color: "#D4AF37", letterSpacing: "0.14em" }}
+        >
+          Currency Converter
+        </h3>
+        {isLive && (
+          <span
+            className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded-full"
+            style={{
+              background: "rgba(212,175,55,0.1)",
+              border: "1px solid rgba(212,175,55,0.25)",
+              color: "#D4AF37",
+            }}
+          >
+            <span
+              className="w-1 h-1 rounded-full"
+              style={{ background: "#D4AF37" }}
+            />
+            Live
+          </span>
+        )}
+      </div>
 
       <div className="mb-3">
         <p
@@ -685,10 +728,13 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
   const [marketData, setMarketData] = useState<MarketData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<
-    "stocks" | "forex" | "crypto" | "convert"
+    "stocks" | "forex" | "crypto" | "convert" | "learn"
   >("stocks");
   const [expandedItem, setExpandedItem] = useState<ExpandedItem>(null);
   const [historicalData, setHistoricalData] = useState<
+    Record<string, number[]>
+  >({});
+  const [forexHistoricalData, setForexHistoricalData] = useState<
     Record<string, number[]>
   >({});
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -740,6 +786,33 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
       }
       if (Object.keys(newData).length > 0) {
         setHistoricalData(newData);
+      }
+
+      // Fix 3: fetch real historical forex sparklines (one per non-USD pair)
+      if (typeof typedActor.getHistoricalForex === "function") {
+        const forexEntries = Object.entries(FOREX_HISTORICAL_MAP);
+        const forexResults = await Promise.allSettled(
+          forexEntries.map(([currency, fmpSymbol]) =>
+            Promise.race([
+              typedActor.getHistoricalForex(fmpSymbol).then((prices) => ({
+                currency,
+                prices,
+              })),
+              new Promise<{ currency: string; prices: number[] }>((_, rej) =>
+                setTimeout(() => rej(new Error("timeout")), 8000),
+              ),
+            ]),
+          ),
+        );
+        const forexData: Record<string, number[]> = {};
+        for (const result of forexResults) {
+          if (result.status === "fulfilled" && result.value.prices.length > 0) {
+            forexData[result.value.currency] = result.value.prices;
+          }
+        }
+        if (Object.keys(forexData).length > 0) {
+          setForexHistoricalData(forexData);
+        }
       }
     } catch {
       // Silently fall back to mock sparkline data — no error shown to user
@@ -822,13 +895,14 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
   const timeAgo = getTimeAgo(lastUpdatedMs);
 
   const tabs: Array<{
-    id: "stocks" | "forex" | "crypto" | "convert";
+    id: "stocks" | "forex" | "crypto" | "convert" | "learn";
     label: string;
   }> = [
     { id: "stocks", label: "Stocks" },
     { id: "forex", label: "Forex" },
     { id: "crypto", label: "Crypto" },
     { id: "convert", label: "Convert" },
+    { id: "learn", label: "Learn" },
   ];
 
   const makeStockItem = (stock: StockQuote) => {
@@ -849,14 +923,20 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
     };
   };
 
-  const makeForexItem = (rate: ForexRate) => ({
-    symbol: rate.symbol,
-    name: `${rate.symbol} / USD`,
-    currentPrice: formatForexRate(rate.rate),
-    changePercent: 0,
-    sparkData: generateSparklineData(rate.symbol, rate.rate, 0),
-    priceUnit: "/ USD",
-  });
+  const makeForexItem = (rate: ForexRate) => {
+    const realData = forexHistoricalData[rate.symbol];
+    return {
+      symbol: rate.symbol,
+      name: `${rate.symbol} / USD`,
+      currentPrice: formatForexRate(rate.rate),
+      changePercent: 0,
+      sparkData:
+        realData && realData.length > 0
+          ? realData
+          : generateSparklineData(rate.symbol, rate.rate, 0),
+      priceUnit: "/ USD",
+    };
+  };
 
   const makeCryptoItem = (coin: CryptoQuote) => {
     const realData = historicalData[coin.symbol];
@@ -949,7 +1029,7 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className="flex-1 py-2 text-xs font-semibold rounded-lg transition-all"
+              className="flex-1 py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1"
               style={{
                 background: activeTab === tab.id ? "#1A1400" : "transparent",
                 color: activeTab === tab.id ? "#D4AF37" : "#6C6C6C",
@@ -960,6 +1040,7 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
               }}
               data-ocid={`markets.${tab.id}.tab`}
             >
+              {tab.id === "learn" && <BookOpen size={11} />}
               {tab.label}
             </button>
           ))}
@@ -1004,6 +1085,7 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
                       <ForexCard
                         forex={rate}
                         onTap={() => setExpandedItem(makeForexItem(rate))}
+                        historicalData={forexHistoricalData[rate.symbol]}
                       />
                     </div>
                   ))}
@@ -1042,8 +1124,17 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
                 ))}
               </div>
             ) : (
-              <CurrencyConverter forex={data.forex} crypto={data.crypto} />
+              <CurrencyConverter
+                forex={data.forex}
+                crypto={data.crypto}
+                isLive={data.success}
+              />
             )}
+          </section>
+        )}
+        {activeTab === "learn" && (
+          <section>
+            <LearnSection />
           </section>
         )}
       </div>
@@ -1088,6 +1179,7 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
                       <ForexCard
                         forex={rate}
                         onTap={() => setExpandedItem(makeForexItem(rate))}
+                        historicalData={forexHistoricalData[rate.symbol]}
                       />
                     </div>
                   ))}
@@ -1131,8 +1223,25 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
               ))}
             </div>
           ) : (
-            <CurrencyConverter forex={data.forex} crypto={data.crypto} />
+            <CurrencyConverter
+              forex={data.forex}
+              crypto={data.crypto}
+              isLive={data.success}
+            />
           )}
+        </section>
+
+        <section className="mb-8">
+          <div className="flex items-center gap-2 mb-4">
+            <BookOpen size={14} style={{ color: "#D4AF37" }} />
+            <h2
+              className="text-xs font-bold uppercase tracking-widest"
+              style={{ color: "#D4AF37", letterSpacing: "0.14em" }}
+            >
+              Learn
+            </h2>
+          </div>
+          <LearnSection />
         </section>
       </div>
 

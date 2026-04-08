@@ -170,6 +170,50 @@ interface ExtendedActor {
   getAcceptedDeliveries: () => Promise<unknown[]>;
   getTrackingByCode: (code: string) => Promise<unknown>;
   isAdminCaller: () => Promise<boolean>;
+  getSavingsGoals: () => Promise<
+    {
+      id: string;
+      name: string;
+      targetAmount: number;
+      lockedAmount: number;
+      currency: string;
+      createdAt: number;
+      isCompleted: boolean;
+    }[]
+  >;
+  createSavingsGoal: (
+    name: string,
+    targetAmount: number,
+    initialDeposit: number,
+    currency: string,
+  ) => Promise<{
+    ok?: {
+      id: string;
+      name: string;
+      targetAmount: number;
+      lockedAmount: number;
+      currency: string;
+      createdAt: number;
+      isCompleted: boolean;
+    };
+    err?: string;
+  }>;
+  addToSavingsGoal: (
+    goalId: string,
+    amount: number,
+  ) => Promise<{
+    ok?: {
+      id: string;
+      name: string;
+      targetAmount: number;
+      lockedAmount: number;
+      currency: string;
+      createdAt: number;
+      isCompleted: boolean;
+    };
+    err?: string;
+  }>;
+  unlockSavingsGoal: (goalId: string) => Promise<{ ok?: number; err?: string }>;
 }
 
 function loadFromStorage<T>(key: string, defaultValue: T): T {

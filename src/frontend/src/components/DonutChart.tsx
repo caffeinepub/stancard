@@ -12,6 +12,8 @@ const CURRENCY_COLORS: Record<string, string> = {
 export interface DonutChartProps {
   balances?: { currency: string; amount: number }[];
   isLoggedIn?: boolean;
+  /** When true, shows a loading skeleton instead of the sign-in prompt (user is logged in but balances are still loading). */
+  loading?: boolean;
   /** Optional live USD rates keyed by currency symbol. Falls back to static rates if omitted. */
   liveRates?: Record<string, number>;
 }
@@ -19,6 +21,7 @@ export interface DonutChartProps {
 export function DonutChart({
   balances,
   isLoggedIn,
+  loading,
   liveRates,
 }: DonutChartProps) {
   const size = 120;
@@ -30,8 +33,57 @@ export function DonutChart({
   // Merge live rates over static fallback rates
   const rates = liveRates ? { ...USD_RATES, ...liveRates } : USD_RATES;
 
-  // ─── Logged-out or no data placeholder ───────────────────────────────────────
-  if (!isLoggedIn || !balances || balances.length === 0) {
+  // ─── Loading skeleton: logged in but balances not yet loaded ─────────────────
+  if (isLoggedIn && loading) {
+    return (
+      <div className="flex items-center gap-6">
+        <div
+          className="relative flex-shrink-0 animate-pulse"
+          style={{ width: size, height: size }}
+        >
+          <svg
+            width={size}
+            height={size}
+            viewBox={`0 0 ${size} ${size}`}
+            role="img"
+            aria-label="Loading portfolio allocation"
+          >
+            <circle
+              cx={cx}
+              cy={cy}
+              r={(outerR + innerR) / 2}
+              fill="none"
+              stroke="#1A1A1A"
+              strokeWidth={outerR - innerR}
+            />
+          </svg>
+        </div>
+        <div className="flex flex-col gap-2.5 flex-1 animate-pulse">
+          {["NGN", "USD", "EUR", "GBP"].map((c) => (
+            <div key={c} className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ background: "#2A2A2A" }}
+                />
+                <div
+                  className="h-2.5 rounded"
+                  style={{ background: "#2A2A2A", width: "32px" }}
+                />
+              </div>
+              <div
+                className="h-2.5 rounded"
+                style={{ background: "#2A2A2A", width: "24px" }}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Logged-out placeholder ───────────────────────────────────────────────────
+  if (!isLoggedIn) {
     return (
       <div className="flex items-center gap-6">
         <div
@@ -100,7 +152,7 @@ export function DonutChart({
   }
 
   // ─── Compute segments from real balances ─────────────────────────────────────
-  const usdValues = balances.map((b) => ({
+  const usdValues = (balances ?? []).map((b) => ({
     currency: b.currency,
     usd: b.amount * (rates[b.currency] ?? 1),
   }));

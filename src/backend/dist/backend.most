@@ -86,6 +86,16 @@ type RiderVerification__882988878 =
     vehicleRegistrationNumber : Text;
     verifiedAt : Int
   };
+type SavingsGoal__197295460 =
+  {
+    createdAt : Int;
+    currency : Text;
+    id : Text;
+    isCompleted : Bool;
+    lockedAmount : Float;
+    name : Text;
+    targetAmount : Float
+  };
 type SenderVerificationWithStatus__920331440 =
   {
     nationalIdDocUrl : ?Text;
@@ -176,6 +186,11 @@ actor {
       var size : Nat__490723111
     };
   stable var routeCounter : Nat;
+  stable savingsGoals :
+    {
+      var root : Node__46230540<Principal, [SavingsGoal__197295460]>;
+      var size : Nat__490723111
+    };
   stable senderVerifications :
     {
       var root : Node__46230540<Principal, SenderVerification__265161284>;

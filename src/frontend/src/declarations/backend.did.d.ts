@@ -131,6 +131,17 @@ export interface RiderVerificationWithStatus {
   'verifiedAt' : bigint,
   'nationalIdNumber' : string,
 }
+export interface SavingsGoal {
+  'id' : string,
+  'isCompleted' : boolean,
+  'name' : string,
+  'createdAt' : bigint,
+  'targetAmount' : number,
+  'currency' : string,
+  'lockedAmount' : number,
+}
+export type SavingsGoalResult = { 'ok' : SavingsGoal } |
+  { 'err' : string };
 export type SendMoneyResult = {
     'ok' : {
       'txId' : string,
@@ -171,6 +182,8 @@ export interface StockQuote {
   'symbol' : string,
 }
 export interface TrackingEntry { 'status' : string, 'timestamp' : bigint }
+export type UnlockResult = { 'ok' : number } |
+  { 'err' : string };
 export interface UserProfile {
   'hideBalance' : boolean,
   'hideTransactions' : boolean,
@@ -209,6 +222,7 @@ export interface YouTubeVideo {
 export interface _SERVICE {
   'addAdmin' : ActorMethod<[Principal], AdminResult>,
   'addAlert' : ActorMethod<[string, string, string, number], Alert>,
+  'addToSavingsGoal' : ActorMethod<[string, number], SavingsGoalResult>,
   'addWalletTransaction' : ActorMethod<
     [string, string, number, string, string, string],
     WalletTransaction
@@ -216,6 +230,10 @@ export interface _SERVICE {
   'approveRiderVerification' : ActorMethod<[Principal, string], AdminResult>,
   'approveSenderVerification' : ActorMethod<[Principal, string], AdminResult>,
   'clearAlertTriggered' : ActorMethod<[string], boolean>,
+  'createSavingsGoal' : ActorMethod<
+    [string, number, number, string],
+    SavingsGoalResult
+  >,
   'createVirtualAccount' : ActorMethod<[string], VirtualAccountResult>,
   'deleteAlert' : ActorMethod<[string], boolean>,
   'deleteRoute' : ActorMethod<[string], MoveResult>,
@@ -235,6 +253,7 @@ export interface _SERVICE {
     [],
     Array<SenderVerificationWithStatus>
   >,
+  'getHistoricalForex' : ActorMethod<[string], Array<number>>,
   'getHistoricalPrices' : ActorMethod<[string], Array<number>>,
   'getIncomingRequests' : ActorMethod<[], Array<RequestWithPackage>>,
   'getMarketData' : ActorMethod<[], MarketData>,
@@ -242,6 +261,7 @@ export interface _SERVICE {
   'getNewsData' : ActorMethod<[], NewsData>,
   'getRiderRoutes' : ActorMethod<[], Array<RiderRoute>>,
   'getRiderVerification' : ActorMethod<[], [] | [RiderVerification]>,
+  'getSavingsGoals' : ActorMethod<[], Array<SavingsGoal>>,
   'getSenderPackages' : ActorMethod<[], Array<Package>>,
   'getSenderRequests' : ActorMethod<[], Array<DeliveryRequest>>,
   'getSenderTrackings' : ActorMethod<[], Array<ShipmentTracking>>,
@@ -296,6 +316,7 @@ export interface _SERVICE {
     [string, string, [] | [string]],
     MoveResult
   >,
+  'unlockSavingsGoal' : ActorMethod<[string], UnlockResult>,
   'updateAlert' : ActorMethod<[string, boolean], boolean>,
   'updateRoute' : ActorMethod<
     [string, string, string, string, string, string, string, string],

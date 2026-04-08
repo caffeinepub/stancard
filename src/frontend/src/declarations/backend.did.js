@@ -19,6 +19,19 @@ export const Alert = IDL.Record({
   'symbol' : IDL.Text,
   'condition' : IDL.Text,
 });
+export const SavingsGoal = IDL.Record({
+  'id' : IDL.Text,
+  'isCompleted' : IDL.Bool,
+  'name' : IDL.Text,
+  'createdAt' : IDL.Int,
+  'targetAmount' : IDL.Float64,
+  'currency' : IDL.Text,
+  'lockedAmount' : IDL.Float64,
+});
+export const SavingsGoalResult = IDL.Variant({
+  'ok' : SavingsGoal,
+  'err' : IDL.Text,
+});
 export const WalletTransaction = IDL.Record({
   'id' : IDL.Text,
   'status' : IDL.Text,
@@ -215,12 +228,21 @@ export const SendMoneyResult = IDL.Variant({
   }),
   'err' : IDL.Text,
 });
+export const UnlockResult = IDL.Variant({
+  'ok' : IDL.Float64,
+  'err' : IDL.Text,
+});
 
 export const idlService = IDL.Service({
   'addAdmin' : IDL.Func([IDL.Principal], [AdminResult], []),
   'addAlert' : IDL.Func(
       [IDL.Text, IDL.Text, IDL.Text, IDL.Float64],
       [Alert],
+      [],
+    ),
+  'addToSavingsGoal' : IDL.Func(
+      [IDL.Text, IDL.Float64],
+      [SavingsGoalResult],
       [],
     ),
   'addWalletTransaction' : IDL.Func(
@@ -239,6 +261,11 @@ export const idlService = IDL.Service({
       [],
     ),
   'clearAlertTriggered' : IDL.Func([IDL.Text], [IDL.Bool], []),
+  'createSavingsGoal' : IDL.Func(
+      [IDL.Text, IDL.Float64, IDL.Float64, IDL.Text],
+      [SavingsGoalResult],
+      [],
+    ),
   'createVirtualAccount' : IDL.Func([IDL.Text], [VirtualAccountResult], []),
   'deleteAlert' : IDL.Func([IDL.Text], [IDL.Bool], []),
   'deleteRoute' : IDL.Func([IDL.Text], [MoveResult], []),
@@ -261,6 +288,7 @@ export const idlService = IDL.Service({
       [IDL.Vec(SenderVerificationWithStatus)],
       ['query'],
     ),
+  'getHistoricalForex' : IDL.Func([IDL.Text], [IDL.Vec(IDL.Float64)], []),
   'getHistoricalPrices' : IDL.Func([IDL.Text], [IDL.Vec(IDL.Float64)], []),
   'getIncomingRequests' : IDL.Func(
       [],
@@ -280,6 +308,7 @@ export const idlService = IDL.Service({
       [IDL.Opt(RiderVerification)],
       ['query'],
     ),
+  'getSavingsGoals' : IDL.Func([], [IDL.Vec(SavingsGoal)], ['query']),
   'getSenderPackages' : IDL.Func([], [IDL.Vec(Package)], ['query']),
   'getSenderRequests' : IDL.Func([], [IDL.Vec(DeliveryRequest)], ['query']),
   'getSenderTrackings' : IDL.Func([], [IDL.Vec(ShipmentTracking)], ['query']),
@@ -381,6 +410,7 @@ export const idlService = IDL.Service({
       [MoveResult],
       [],
     ),
+  'unlockSavingsGoal' : IDL.Func([IDL.Text], [UnlockResult], []),
   'updateAlert' : IDL.Func([IDL.Text, IDL.Bool], [IDL.Bool], []),
   'updateRoute' : IDL.Func(
       [
@@ -417,6 +447,19 @@ export const idlFactory = ({ IDL }) => {
     'isTriggered' : IDL.Bool,
     'symbol' : IDL.Text,
     'condition' : IDL.Text,
+  });
+  const SavingsGoal = IDL.Record({
+    'id' : IDL.Text,
+    'isCompleted' : IDL.Bool,
+    'name' : IDL.Text,
+    'createdAt' : IDL.Int,
+    'targetAmount' : IDL.Float64,
+    'currency' : IDL.Text,
+    'lockedAmount' : IDL.Float64,
+  });
+  const SavingsGoalResult = IDL.Variant({
+    'ok' : SavingsGoal,
+    'err' : IDL.Text,
   });
   const WalletTransaction = IDL.Record({
     'id' : IDL.Text,
@@ -611,12 +654,18 @@ export const idlFactory = ({ IDL }) => {
     }),
     'err' : IDL.Text,
   });
+  const UnlockResult = IDL.Variant({ 'ok' : IDL.Float64, 'err' : IDL.Text });
   
   return IDL.Service({
     'addAdmin' : IDL.Func([IDL.Principal], [AdminResult], []),
     'addAlert' : IDL.Func(
         [IDL.Text, IDL.Text, IDL.Text, IDL.Float64],
         [Alert],
+        [],
+      ),
+    'addToSavingsGoal' : IDL.Func(
+        [IDL.Text, IDL.Float64],
+        [SavingsGoalResult],
         [],
       ),
     'addWalletTransaction' : IDL.Func(
@@ -635,6 +684,11 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'clearAlertTriggered' : IDL.Func([IDL.Text], [IDL.Bool], []),
+    'createSavingsGoal' : IDL.Func(
+        [IDL.Text, IDL.Float64, IDL.Float64, IDL.Text],
+        [SavingsGoalResult],
+        [],
+      ),
     'createVirtualAccount' : IDL.Func([IDL.Text], [VirtualAccountResult], []),
     'deleteAlert' : IDL.Func([IDL.Text], [IDL.Bool], []),
     'deleteRoute' : IDL.Func([IDL.Text], [MoveResult], []),
@@ -661,6 +715,7 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(SenderVerificationWithStatus)],
         ['query'],
       ),
+    'getHistoricalForex' : IDL.Func([IDL.Text], [IDL.Vec(IDL.Float64)], []),
     'getHistoricalPrices' : IDL.Func([IDL.Text], [IDL.Vec(IDL.Float64)], []),
     'getIncomingRequests' : IDL.Func(
         [],
@@ -680,6 +735,7 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Opt(RiderVerification)],
         ['query'],
       ),
+    'getSavingsGoals' : IDL.Func([], [IDL.Vec(SavingsGoal)], ['query']),
     'getSenderPackages' : IDL.Func([], [IDL.Vec(Package)], ['query']),
     'getSenderRequests' : IDL.Func([], [IDL.Vec(DeliveryRequest)], ['query']),
     'getSenderTrackings' : IDL.Func([], [IDL.Vec(ShipmentTracking)], ['query']),
@@ -785,6 +841,7 @@ export const idlFactory = ({ IDL }) => {
         [MoveResult],
         [],
       ),
+    'unlockSavingsGoal' : IDL.Func([IDL.Text], [UnlockResult], []),
     'updateAlert' : IDL.Func([IDL.Text, IDL.Bool], [IDL.Bool], []),
     'updateRoute' : IDL.Func(
         [

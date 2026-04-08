@@ -47,6 +47,11 @@ type UserProfile =
    language: text;
    preferredCurrency: text;
  };
+type UnlockResult = 
+ variant {
+   err: text;
+   ok: float64;
+ };
 type TrackingEntry = 
  record {
    status: text;
@@ -96,6 +101,21 @@ type SendMoneyResult =
       timestamp: text;
       txId: text;
     };
+ };
+type SavingsGoalResult = 
+ variant {
+   err: text;
+   ok: SavingsGoal;
+ };
+type SavingsGoal = 
+ record {
+   createdAt: int;
+   currency: text;
+   id: text;
+   isCompleted: bool;
+   lockedAmount: float64;
+   name: text;
+   targetAmount: float64;
  };
 type RiderVerificationWithStatus = 
  record {
@@ -244,6 +264,7 @@ service : {
   addAdmin: (newAdmin: principal) -> (AdminResult);
   addAlert: (assetType: text, symbol: text, condition: text, targetPrice:
    float64) -> (Alert);
+  addToSavingsGoal: (goalId: text, amount: float64) -> (SavingsGoalResult);
   addWalletTransaction: (txType: text, currency: text, amount: float64, date:
    text, desc: text, status: text) -> (WalletTransaction);
   approveRiderVerification: (riderPrincipal: principal, notes: text) ->
@@ -251,6 +272,8 @@ service : {
   approveSenderVerification: (senderPrincipal: principal, notes: text) ->
    (AdminResult);
   clearAlertTriggered: (id: text) -> (bool);
+  createSavingsGoal: (name: text, targetAmount: float64, initialDeposit:
+   float64, currency: text) -> (SavingsGoalResult);
   createVirtualAccount: (displayName: text) -> (VirtualAccountResult);
   deleteAlert: (id: text) -> (bool);
   deleteRoute: (routeId: text) -> (MoveResult);
@@ -262,6 +285,7 @@ service : {
   getAllRiderVerifications: () -> (vec RiderVerificationWithStatus) query;
   getAllRoutes: () -> (vec RiderRoute) query;
   getAllSenderVerifications: () -> (vec SenderVerificationWithStatus) query;
+  getHistoricalForex: (symbol: text) -> (vec float64);
   getHistoricalPrices: (symbol: text) -> (vec float64);
   getIncomingRequests: () -> (vec RequestWithPackage) query;
   getMarketData: () -> (MarketData);
@@ -270,6 +294,7 @@ service : {
   getNewsData: () -> (NewsData);
   getRiderRoutes: () -> (vec RiderRoute) query;
   getRiderVerification: () -> (opt RiderVerification) query;
+  getSavingsGoals: () -> (vec SavingsGoal) query;
   getSenderPackages: () -> (vec Package) query;
   getSenderRequests: () -> (vec DeliveryRequest) query;
   getSenderTrackings: () -> (vec ShipmentTracking) query;
@@ -313,6 +338,7 @@ service : {
    (MoveResult);
   submitSenderVerification: (phoneNumber: text, nationalIdNumber: text,
    nationalIdDocUrl: opt text) -> (MoveResult);
+  unlockSavingsGoal: (goalId: text) -> (UnlockResult);
   updateAlert: (id: text, isActive: bool) -> (bool);
   updateRoute: (routeId: text, vehicleType: text, departureCity: text,
    departureCountry: text, destinationCity: text, destinationCountry: 

@@ -764,6 +764,38 @@ persistent actor {
     prices
   };
 
+  // ─── Public API — Historical Forex Prices (with 24h canister cache) ──────
+
+  public func getHistoricalForex(symbol : Text) : async [Float] {
+    let now = Time.now();
+    let twentyFourHoursNs : Int = 86_400_000_000_000;
+
+    // Check same cache as stocks/crypto
+    switch (historicalPriceCache.get(symbol)) {
+      case (?cached) {
+        if (now - cached.fetchedAt < twentyFourHoursNs) {
+          return cached.prices;
+        };
+      };
+      case null {};
+    };
+
+    // Cache miss or stale — fetch from FMP forex historical endpoint
+    let apiKey = "sNm7MnB0SR8L0Cm2nsK4FwCRFoouf6iZ";
+    let url = "https://financialmodelingprep.com/api/v3/historical-price-full/" # symbol # "?timeseries=7&apikey=" # apiKey;
+    let resp = await httpGet(url);
+    let prices = switch (resp) {
+      case null [];
+      case (?json) parseHistoricalPrices(json);
+    };
+
+    if (prices.size() > 0) {
+      historicalPriceCache.add(symbol, { prices; fetchedAt = now });
+    };
+
+    prices
+  };
+
   // ─── Public API — Alerts ─────────────────────────────────────────────────
 
   public func addAlert(assetType : Text, symbol : Text, condition : Text, targetPrice : Float) : async Alert {
@@ -1864,6 +1896,203 @@ persistent actor {
   public query (msg) func getSenderVerification() : async ?SenderVerification {
     if (msg.caller.isAnonymous()) { return null };
     senderVerifications.get(msg.caller)
+  };
+
+  // ─── Savings Goals ───────────────────────────────────────────────────────
+
+  public type SavingsGoal = {
+    id : Text;
+    name : Text;
+    targetAmount : Float;
+    lockedAmount : Float;
+    currency : Text;
+    createdAt : Int;
+    isCompleted : Bool;
+  };
+
+  public type SavingsGoalResult = {
+    #ok : SavingsGoal;
+    #err : Text;
+  };
+
+  public type UnlockResult = {
+    #ok : Float;
+    #err : Text;
+  };
+
+  let savingsGoals : Map.Map<Principal, [SavingsGoal]> = Map.empty<Principal, [SavingsGoal]>();
+
+  public shared (msg) func createSavingsGoal(
+    name : Text,
+    targetAmount : Float,
+    initialDeposit : Float,
+    currency : Text
+  ) : async SavingsGoalResult {
+    if (msg.caller.isAnonymous()) {
+      return #err("You must be signed in to create a savings goal.");
+    };
+    if (name == "") {
+      return #err("Goal name cannot be empty.");
+    };
+    if (targetAmount <= 0.0) {
+      return #err("Target amount must be greater than zero.");
+    };
+    if (initialDeposit < 0.0) {
+      return #err("Initial deposit cannot be negative.");
+    };
+    // Validate initial deposit against wallet balance
+    if (initialDeposit > 0.0) {
+      let bals = switch (walletBalances.get(msg.caller)) { case (?b) b; case null [] };
+      let curBal : Float = switch (bals.find(func(b) { b.currency == currency })) {
+        case (?b) b.amount;
+        case null 0.0;
+      };
+      if (initialDeposit > curBal) {
+        return #err("Insufficient wallet balance for initial deposit.");
+      };
+      // Deduct initial deposit from wallet
+      let updatedBals = bals.map(func(b) {
+        if (b.currency == currency) { { currency; amount = curBal - initialDeposit } } else b
+      });
+      walletBalances.add(msg.caller, updatedBals);
+      // Record transaction
+      let txNow = Int.abs(Time.now());
+      let txId = "tx-goal-lock-" # txNow.toText();
+      let newTx : WalletTransaction = {
+        id = txId;
+        txType = "send";
+        currency;
+        amount = initialDeposit;
+        date = "";
+        desc = "Locked for savings goal: " # name;
+        status = "completed";
+      };
+      let existingTxs = switch (walletTransactions.get(msg.caller)) { case (?t) t; case null [] };
+      walletTransactions.add(msg.caller, [newTx].concat(existingTxs));
+    };
+    let now = Time.now();
+    let goalId = "goal-" # msg.caller.toText() # "-" # Int.abs(now).toText();
+    let isCompleted = initialDeposit >= targetAmount;
+    let goal : SavingsGoal = {
+      id = goalId;
+      name;
+      targetAmount;
+      lockedAmount = initialDeposit;
+      currency;
+      createdAt = now;
+      isCompleted;
+    };
+    let existing = switch (savingsGoals.get(msg.caller)) { case (?g) g; case null [] };
+    savingsGoals.add(msg.caller, existing.concat([goal]));
+    #ok(goal)
+  };
+
+  public query (msg) func getSavingsGoals() : async [SavingsGoal] {
+    switch (savingsGoals.get(msg.caller)) { case (?g) g; case null [] }
+  };
+
+  public shared (msg) func addToSavingsGoal(goalId : Text, amount : Float) : async SavingsGoalResult {
+    if (msg.caller.isAnonymous()) {
+      return #err("You must be signed in.");
+    };
+    if (amount <= 0.0) {
+      return #err("Amount must be greater than zero.");
+    };
+    let existing = switch (savingsGoals.get(msg.caller)) { case (?g) g; case null [] };
+    let goalOpt = existing.find(func(g) { g.id == goalId });
+    let goal = switch (goalOpt) {
+      case null { return #err("Savings goal not found.") };
+      case (?g) g;
+    };
+    // Validate wallet balance
+    let bals = switch (walletBalances.get(msg.caller)) { case (?b) b; case null [] };
+    let curBal : Float = switch (bals.find(func(b) { b.currency == goal.currency })) {
+      case (?b) b.amount;
+      case null 0.0;
+    };
+    if (amount > curBal) {
+      return #err("Insufficient wallet balance.");
+    };
+    // Deduct from wallet
+    let updatedBals = bals.map(func(b) {
+      if (b.currency == goal.currency) { { currency = goal.currency; amount = curBal - amount } } else b
+    });
+    walletBalances.add(msg.caller, updatedBals);
+    // Record transaction
+    let txNow = Int.abs(Time.now());
+    let txId = "tx-goal-add-" # txNow.toText();
+    let newTx : WalletTransaction = {
+      id = txId;
+      txType = "send";
+      currency = goal.currency;
+      amount;
+      date = "";
+      desc = "Added to savings goal: " # goal.name;
+      status = "completed";
+    };
+    let existingTxs = switch (walletTransactions.get(msg.caller)) { case (?t) t; case null [] };
+    walletTransactions.add(msg.caller, [newTx].concat(existingTxs));
+    // Update goal
+    let newLocked = goal.lockedAmount + amount;
+    let isCompleted = newLocked >= goal.targetAmount;
+    let updatedGoal : SavingsGoal = { goal with lockedAmount = newLocked; isCompleted };
+    let updatedGoals = existing.map(func(g) {
+      if (g.id == goalId) updatedGoal else g
+    });
+    savingsGoals.add(msg.caller, updatedGoals);
+    #ok(updatedGoal)
+  };
+
+  public shared (msg) func unlockSavingsGoal(goalId : Text) : async UnlockResult {
+    if (msg.caller.isAnonymous()) {
+      return #err("You must be signed in.");
+    };
+    let existing = switch (savingsGoals.get(msg.caller)) { case (?g) g; case null [] };
+    let goalOpt = existing.find(func(g) { g.id == goalId });
+    let goal = switch (goalOpt) {
+      case null { return #err("Savings goal not found.") };
+      case (?g) g;
+    };
+    if (goal.lockedAmount <= 0.0) {
+      return #err("No locked funds to unlock.");
+    };
+    let unlockedAmount = goal.lockedAmount;
+    // Return funds to wallet
+    let bals = switch (walletBalances.get(msg.caller)) { case (?b) b; case null [] };
+    let curBal : Float = switch (bals.find(func(b) { b.currency == goal.currency })) {
+      case (?b) b.amount;
+      case null 0.0;
+    };
+    let hasCur = switch (bals.find(func(b) { b.currency == goal.currency })) {
+      case (?_) true;
+      case null false;
+    };
+    let updatedBals = if (hasCur) {
+      bals.map(func(b) {
+        if (b.currency == goal.currency) { { currency = goal.currency; amount = curBal + unlockedAmount } } else b
+      })
+    } else {
+      bals.concat([{ currency = goal.currency; amount = unlockedAmount }])
+    };
+    walletBalances.add(msg.caller, updatedBals);
+    // Record transaction
+    let txNow = Int.abs(Time.now());
+    let txId = "tx-goal-unlock-" # txNow.toText();
+    let newTx : WalletTransaction = {
+      id = txId;
+      txType = "receive";
+      currency = goal.currency;
+      amount = unlockedAmount;
+      date = "";
+      desc = "Unlocked from savings goal: " # goal.name;
+      status = "completed";
+    };
+    let existingTxs = switch (walletTransactions.get(msg.caller)) { case (?t) t; case null [] };
+    walletTransactions.add(msg.caller, [newTx].concat(existingTxs));
+    // Remove goal from storage
+    let updatedGoals = existing.filter(func(g) { g.id != goalId });
+    savingsGoals.add(msg.caller, updatedGoals);
+    #ok(unlockedAmount)
   };
 
   // ─── Admin State ─────────────────────────────────────────────────────────

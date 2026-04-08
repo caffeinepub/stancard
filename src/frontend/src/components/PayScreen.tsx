@@ -24,9 +24,13 @@ import {
   CreditCard,
   Download,
   Lock,
+  PiggyBank,
+  Plus,
   QrCode,
   RefreshCw,
   Send,
+  Target,
+  Unlock,
   Wallet,
   X,
 } from "lucide-react";
@@ -502,6 +506,16 @@ type Currency = "NGN" | "USD" | "EUR" | "GBP" | "CNY";
 type TxType = "fund" | "send" | "receive";
 type TxStatus = "completed" | "pending" | "failed";
 
+interface SavingsGoal {
+  id: string;
+  name: string;
+  targetAmount: number;
+  lockedAmount: number;
+  currency: string;
+  createdAt: number;
+  isCompleted: boolean;
+}
+
 interface Transaction {
   id: string;
   type: TxType;
@@ -593,6 +607,18 @@ interface ActorLike {
       }
     | { err: string }
   >;
+  getSavingsGoals: () => Promise<SavingsGoal[]>;
+  createSavingsGoal: (
+    name: string,
+    targetAmount: number,
+    initialDeposit: number,
+    currency: string,
+  ) => Promise<{ ok?: SavingsGoal; err?: string }>;
+  addToSavingsGoal: (
+    goalId: string,
+    amount: number,
+  ) => Promise<{ ok?: SavingsGoal; err?: string }>;
+  unlockSavingsGoal: (goalId: string) => Promise<{ ok?: number; err?: string }>;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -2817,6 +2843,1177 @@ function TxRow({ tx, index }: { tx: Transaction; index: number }) {
   );
 }
 
+// ── Savings Goals Components ───────────────────────────────────────────────────
+
+const GOLD_GRADIENT =
+  "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)";
+
+function GoalProgressBar({ pct }: { pct: number }) {
+  const clamped = Math.min(100, Math.max(0, pct));
+  return (
+    <div
+      style={{
+        height: 8,
+        background: "rgba(255,255,255,0.06)",
+        borderRadius: 99,
+        overflow: "hidden",
+        width: "100%",
+      }}
+    >
+      <div
+        style={{
+          height: "100%",
+          width: `${clamped}%`,
+          background: GOLD_GRADIENT,
+          borderRadius: 99,
+          transition: "width 0.5s ease",
+        }}
+      />
+    </div>
+  );
+}
+
+function CreateGoalModal({
+  open,
+  onClose,
+  defaultCurrency,
+  balances,
+  actor,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  defaultCurrency: Currency;
+  balances: Record<Currency, number>;
+  actor: ActorLike;
+  onCreated: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [target, setTarget] = useState("");
+  const [deposit, setDeposit] = useState("");
+  const [currency, setCurrency] = useState<Currency>(defaultCurrency);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (open) setCurrency(defaultCurrency);
+  }, [open, defaultCurrency]);
+
+  function handleClose() {
+    setName("");
+    setTarget("");
+    setDeposit("");
+    setError("");
+    setSubmitting(false);
+    onClose();
+  }
+
+  async function handleSubmit() {
+    const trimmedName = name.trim();
+    const parsedTarget = Number.parseFloat(target);
+    const parsedDeposit = Number.parseFloat(deposit) || 0;
+
+    if (!trimmedName) {
+      setError("Goal name is required.");
+      return;
+    }
+    if (!target || Number.isNaN(parsedTarget) || parsedTarget <= 0) {
+      setError("Target amount must be greater than 0.");
+      return;
+    }
+    if (parsedDeposit < 0) {
+      setError("Initial deposit cannot be negative.");
+      return;
+    }
+    const walletBal = balances[currency] || 0;
+    if (parsedDeposit > walletBal) {
+      setError(
+        `Initial deposit exceeds your ${currency} balance (${CURRENCY_SYMBOL[currency]}${walletBal.toLocaleString("en-US", { minimumFractionDigits: 2 })}).`,
+      );
+      return;
+    }
+
+    setError("");
+    setSubmitting(true);
+    try {
+      const result = await Promise.race([
+        actor.createSavingsGoal(
+          trimmedName,
+          parsedTarget,
+          parsedDeposit,
+          currency,
+        ),
+        new Promise<never>((_, rej) =>
+          setTimeout(
+            () => rej(new Error("Request timed out. Please try again.")),
+            8000,
+          ),
+        ),
+      ]);
+      if (result.err) {
+        setError(result.err);
+      } else {
+        toast.success("Goal created!");
+        handleClose();
+        onCreated();
+      }
+    } catch (e: unknown) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Failed to create goal. Please try again.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const fieldStyle = {
+    background: "#1A1A1A",
+    border: "1px solid #2A2A2A",
+    color: "#E8E8E8",
+    borderRadius: 10,
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
+      <DialogContent
+        data-ocid="pay.goals.create.modal"
+        style={{
+          background: "#0F0F0F",
+          border: "1px solid #2A2A2A",
+          borderRadius: 16,
+          maxWidth: 380,
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle
+            style={{
+              background: GOLD_GRADIENT,
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+              fontSize: 18,
+              fontWeight: 700,
+            }}
+          >
+            Create Savings Goal
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-4 mt-2">
+          {/* Goal Name */}
+          <div>
+            <Label
+              style={{
+                color: "#7A7A7A",
+                fontSize: 12,
+                fontWeight: 600,
+                letterSpacing: "0.06em",
+              }}
+            >
+              GOAL NAME
+            </Label>
+            <Input
+              data-ocid="pay.goals.create.name.input"
+              placeholder="e.g. Emergency Fund"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setError("");
+              }}
+              style={{ ...fieldStyle, marginTop: 6 }}
+            />
+          </div>
+
+          {/* Currency */}
+          <div>
+            <Label
+              style={{
+                color: "#7A7A7A",
+                fontSize: 12,
+                fontWeight: 600,
+                letterSpacing: "0.06em",
+              }}
+            >
+              CURRENCY
+            </Label>
+            <Select
+              value={currency}
+              onValueChange={(v) => {
+                setCurrency(v as Currency);
+                setError("");
+              }}
+            >
+              <SelectTrigger
+                data-ocid="pay.goals.create.currency.select"
+                style={{ ...fieldStyle, marginTop: 6 }}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent
+                style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
+              >
+                {CURRENCIES.map((c) => (
+                  <SelectItem key={c} value={c} style={{ color: "#E8E8E8" }}>
+                    {c} — {CURRENCY_SYMBOL[c]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Target Amount */}
+          <div>
+            <Label
+              style={{
+                color: "#7A7A7A",
+                fontSize: 12,
+                fontWeight: 600,
+                letterSpacing: "0.06em",
+              }}
+            >
+              TARGET AMOUNT
+            </Label>
+            <div className="relative mt-1.5">
+              <span
+                style={{
+                  position: "absolute",
+                  left: 12,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  color: "#D4AF37",
+                  fontWeight: 700,
+                  fontSize: 16,
+                  pointerEvents: "none",
+                }}
+              >
+                {CURRENCY_SYMBOL[currency]}
+              </span>
+              <Input
+                data-ocid="pay.goals.create.target.input"
+                type="number"
+                min="0"
+                placeholder="0.00"
+                value={target}
+                onChange={(e) => {
+                  setTarget(e.target.value);
+                  setError("");
+                }}
+                style={{
+                  ...fieldStyle,
+                  paddingLeft: 32,
+                  fontSize: 16,
+                  fontWeight: 600,
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Initial Deposit */}
+          <div>
+            <Label
+              style={{
+                color: "#7A7A7A",
+                fontSize: 12,
+                fontWeight: 600,
+                letterSpacing: "0.06em",
+              }}
+            >
+              INITIAL DEPOSIT{" "}
+              <span
+                style={{
+                  color: "#4A4A4A",
+                  fontWeight: 400,
+                  textTransform: "none",
+                  letterSpacing: 0,
+                }}
+              >
+                (optional)
+              </span>
+            </Label>
+            <div className="relative mt-1.5">
+              <span
+                style={{
+                  position: "absolute",
+                  left: 12,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  color: "#D4AF37",
+                  fontWeight: 700,
+                  fontSize: 16,
+                  pointerEvents: "none",
+                }}
+              >
+                {CURRENCY_SYMBOL[currency]}
+              </span>
+              <Input
+                data-ocid="pay.goals.create.deposit.input"
+                type="number"
+                min="0"
+                placeholder="0.00"
+                value={deposit}
+                onChange={(e) => {
+                  setDeposit(e.target.value);
+                  setError("");
+                }}
+                style={{
+                  ...fieldStyle,
+                  paddingLeft: 32,
+                  fontSize: 16,
+                  fontWeight: 600,
+                }}
+              />
+            </div>
+            <p style={{ fontSize: 11, color: "#4A4A4A", marginTop: 4 }}>
+              Balance: {CURRENCY_SYMBOL[currency]}
+              {(balances[currency] || 0).toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+              })}
+            </p>
+          </div>
+
+          {error && (
+            <p
+              data-ocid="pay.goals.create.error_state"
+              style={{ color: "#E05252", fontSize: 13, marginTop: -8 }}
+            >
+              {error}
+            </p>
+          )}
+
+          <Button
+            data-ocid="pay.goals.create.submit_button"
+            onClick={() => void handleSubmit()}
+            disabled={submitting}
+            className="w-full"
+            style={{
+              background: GOLD_GRADIENT,
+              color: "rgba(0,0,0,0.85)",
+              fontWeight: 700,
+              fontSize: 15,
+              borderRadius: 12,
+              padding: "12px 0",
+              height: "auto",
+              boxShadow: "0 4px 20px rgba(212,175,55,0.3)",
+              border: "none",
+              opacity: submitting ? 0.7 : 1,
+            }}
+          >
+            {submitting ? "Creating..." : "Create Goal"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AddFundsModal({
+  open,
+  onClose,
+  goal,
+  balances,
+  actor,
+  onSuccess,
+}: {
+  open: boolean;
+  onClose: () => void;
+  goal: SavingsGoal | null;
+  balances: Record<Currency, number>;
+  actor: ActorLike;
+  onSuccess: () => void;
+}) {
+  const [amount, setAmount] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  function handleClose() {
+    setAmount("");
+    setError("");
+    setSubmitting(false);
+    onClose();
+  }
+
+  async function handleSubmit() {
+    if (!goal) return;
+    const parsed = Number.parseFloat(amount);
+    if (!amount || Number.isNaN(parsed) || parsed <= 0) {
+      setError("Enter a valid amount greater than 0.");
+      return;
+    }
+    const curr = goal.currency as Currency;
+    const walletBal = balances[curr] || 0;
+    if (parsed > walletBal) {
+      setError(
+        `Amount exceeds your ${curr} balance (${CURRENCY_SYMBOL[curr] || curr}${walletBal.toLocaleString("en-US", { minimumFractionDigits: 2 })}).`,
+      );
+      return;
+    }
+    setError("");
+    setSubmitting(true);
+    try {
+      const result = await Promise.race([
+        actor.addToSavingsGoal(goal.id, parsed),
+        new Promise<never>((_, rej) =>
+          setTimeout(
+            () => rej(new Error("Request timed out. Please try again.")),
+            8000,
+          ),
+        ),
+      ]);
+      if (result.err) {
+        setError(result.err);
+      } else {
+        toast.success("Funds added!");
+        handleClose();
+        onSuccess();
+      }
+    } catch (e: unknown) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Failed to add funds. Please try again.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const curr = (goal?.currency as Currency) || "NGN";
+  const sym = CURRENCY_SYMBOL[curr] || curr;
+  const pct = goal
+    ? Math.round((goal.lockedAmount / Math.max(goal.targetAmount, 0.01)) * 100)
+    : 0;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
+      <DialogContent
+        data-ocid="pay.goals.addfunds.modal"
+        style={{
+          background: "#0F0F0F",
+          border: "1px solid #2A2A2A",
+          borderRadius: 16,
+          maxWidth: 360,
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle
+            style={{
+              background: GOLD_GRADIENT,
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+              fontSize: 18,
+              fontWeight: 700,
+            }}
+          >
+            Add Funds
+          </DialogTitle>
+        </DialogHeader>
+
+        {goal && (
+          <div className="flex flex-col gap-4 mt-2">
+            {/* Goal summary */}
+            <div
+              style={{
+                background: "#1A1A1A",
+                borderLeft: "3px solid #D4AF37",
+                borderRadius: 10,
+                padding: "12px 14px",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: "#E8E8E8",
+                  marginBottom: 6,
+                }}
+              >
+                {goal.name}
+              </div>
+              <div style={{ fontSize: 12, color: "#7A7A7A", marginBottom: 8 }}>
+                {sym}
+                {goal.lockedAmount.toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                })}{" "}
+                / {sym}
+                {goal.targetAmount.toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                })}
+              </div>
+              <GoalProgressBar pct={pct} />
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "#D4AF37",
+                  marginTop: 4,
+                  textAlign: "right",
+                }}
+              >
+                {pct}%
+              </div>
+            </div>
+
+            {/* Amount */}
+            <div>
+              <Label
+                style={{
+                  color: "#7A7A7A",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  letterSpacing: "0.06em",
+                }}
+              >
+                AMOUNT
+              </Label>
+              <div className="relative mt-1.5">
+                <span
+                  style={{
+                    position: "absolute",
+                    left: 12,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    color: "#D4AF37",
+                    fontWeight: 700,
+                    fontSize: 16,
+                    pointerEvents: "none",
+                  }}
+                >
+                  {sym}
+                </span>
+                <Input
+                  data-ocid="pay.goals.addfunds.amount.input"
+                  type="number"
+                  min="0"
+                  placeholder="0.00"
+                  value={amount}
+                  onChange={(e) => {
+                    setAmount(e.target.value);
+                    setError("");
+                  }}
+                  style={{
+                    background: "#1A1A1A",
+                    border: "1px solid #2A2A2A",
+                    color: "#E8E8E8",
+                    borderRadius: 10,
+                    paddingLeft: 32,
+                    fontSize: 16,
+                    fontWeight: 600,
+                  }}
+                />
+              </div>
+              <p style={{ fontSize: 11, color: "#4A4A4A", marginTop: 4 }}>
+                {curr} Balance: {sym}
+                {(balances[curr] || 0).toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                })}
+              </p>
+            </div>
+
+            {error && (
+              <p
+                data-ocid="pay.goals.addfunds.error_state"
+                style={{ color: "#E05252", fontSize: 13, marginTop: -8 }}
+              >
+                {error}
+              </p>
+            )}
+
+            <Button
+              data-ocid="pay.goals.addfunds.submit_button"
+              onClick={() => void handleSubmit()}
+              disabled={submitting}
+              className="w-full"
+              style={{
+                background: GOLD_GRADIENT,
+                color: "rgba(0,0,0,0.85)",
+                fontWeight: 700,
+                fontSize: 15,
+                borderRadius: 12,
+                padding: "12px 0",
+                height: "auto",
+                boxShadow: "0 4px 20px rgba(212,175,55,0.3)",
+                border: "none",
+                opacity: submitting ? 0.7 : 1,
+              }}
+            >
+              {submitting ? "Adding..." : "Add Funds"}
+            </Button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function GoalCard({
+  goal,
+  onAddFunds,
+  onUnlock,
+}: {
+  goal: SavingsGoal;
+  onAddFunds: (g: SavingsGoal) => void;
+  onUnlock: (g: SavingsGoal) => void;
+}) {
+  const curr = goal.currency as Currency;
+  const sym = CURRENCY_SYMBOL[curr] || goal.currency;
+  const pct = Math.round(
+    (goal.lockedAmount / Math.max(goal.targetAmount, 0.01)) * 100,
+  );
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+      data-ocid="pay.goals.card"
+      style={{
+        background: "#1A1A1A",
+        borderLeft: "3px solid #D4AF37",
+        borderRadius: 12,
+        padding: "14px 16px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      {/* Header row */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 8,
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 14,
+              fontWeight: 700,
+              color: "#E8E8E8",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {goal.name}
+          </div>
+          <div style={{ fontSize: 12, color: "#7A7A7A", marginTop: 2 }}>
+            {sym}
+            {goal.lockedAmount.toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+            })}
+            {" / "}
+            {sym}
+            {goal.targetAmount.toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+            })}
+          </div>
+        </div>
+        {goal.isCompleted ? (
+          <span
+            style={{
+              background: "rgba(76,175,122,0.15)",
+              border: "1px solid rgba(76,175,122,0.35)",
+              borderRadius: 20,
+              padding: "2px 10px",
+              fontSize: 11,
+              fontWeight: 700,
+              color: "#4CAF7A",
+              letterSpacing: "0.04em",
+              flexShrink: 0,
+            }}
+          >
+            Completed
+          </span>
+        ) : (
+          <span
+            style={{
+              background: "rgba(212,175,55,0.1)",
+              border: "1px solid rgba(212,175,55,0.2)",
+              borderRadius: 20,
+              padding: "2px 10px",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#D4AF37",
+              flexShrink: 0,
+            }}
+          >
+            {curr}
+          </span>
+        )}
+      </div>
+
+      {/* Progress */}
+      <div>
+        <GoalProgressBar pct={pct} />
+        <div
+          style={{
+            fontSize: 11,
+            color: "#D4AF37",
+            textAlign: "right",
+            marginTop: 4,
+            fontWeight: 600,
+          }}
+        >
+          {pct}%
+        </div>
+      </div>
+
+      {/* Actions */}
+      {!goal.isCompleted && (
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            type="button"
+            data-ocid="pay.goals.card.addfunds.button"
+            onClick={() => onAddFunds(goal)}
+            style={{
+              flex: 1,
+              background: "transparent",
+              border: "1px solid rgba(212,175,55,0.45)",
+              borderRadius: 8,
+              padding: "7px 0",
+              color: "#D4AF37",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 5,
+              transition: "background 0.2s ease",
+            }}
+          >
+            <Plus size={13} />
+            Add Funds
+          </button>
+          <button
+            type="button"
+            data-ocid="pay.goals.card.unlock.button"
+            onClick={() => onUnlock(goal)}
+            style={{
+              background: "transparent",
+              border: "1px solid rgba(224,82,82,0.35)",
+              borderRadius: 8,
+              padding: "7px 12px",
+              color: "#E05252",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              transition: "background 0.2s ease",
+            }}
+          >
+            <Unlock size={13} />
+            Unlock
+          </button>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+function SavingsGoalsPanel({
+  isLoggedIn,
+  actor,
+  balances,
+  defaultCurrency,
+  onWalletRefresh,
+}: {
+  isLoggedIn: boolean;
+  actor?: ActorLike | null;
+  balances: Record<Currency, number>;
+  defaultCurrency: Currency;
+  onWalletRefresh: () => void;
+}) {
+  const [goals, setGoals] = useState<SavingsGoal[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [addFundsGoal, setAddFundsGoal] = useState<SavingsGoal | null>(null);
+  const [unlockGoal, setUnlockGoal] = useState<SavingsGoal | null>(null);
+  const [unlocking, setUnlocking] = useState(false);
+  const hasFetchedRef = useRef(false);
+
+  const fetchGoals = useCallback(async () => {
+    if (!actor || !isLoggedIn) return;
+    setLoading(true);
+    try {
+      const result = await Promise.race([
+        actor.getSavingsGoals(),
+        new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error("timeout")), 8000),
+        ),
+      ]);
+      setGoals(result);
+    } catch {
+      // silently fail — show whatever we have
+    } finally {
+      setLoading(false);
+    }
+  }, [actor, isLoggedIn]);
+
+  useEffect(() => {
+    if (isLoggedIn && actor && !hasFetchedRef.current) {
+      hasFetchedRef.current = true;
+      void fetchGoals();
+    }
+    if (!isLoggedIn) {
+      setGoals([]);
+      hasFetchedRef.current = false;
+    }
+  }, [isLoggedIn, actor, fetchGoals]);
+
+  async function handleUnlockConfirm() {
+    if (!unlockGoal || !actor) return;
+    setUnlocking(true);
+    try {
+      const result = await Promise.race([
+        actor.unlockSavingsGoal(unlockGoal.id),
+        new Promise<never>((_, rej) =>
+          setTimeout(
+            () => rej(new Error("Request timed out. Please try again.")),
+            8000,
+          ),
+        ),
+      ]);
+      if (result.err) {
+        toast.error(result.err);
+      } else {
+        toast.success("Funds unlocked!");
+        setUnlockGoal(null);
+        void fetchGoals();
+        onWalletRefresh();
+      }
+    } catch (e: unknown) {
+      toast.error(
+        e instanceof Error ? e.message : "Failed to unlock. Please try again.",
+      );
+    } finally {
+      setUnlocking(false);
+    }
+  }
+
+  const unlockCurr = (unlockGoal?.currency as Currency) || "NGN";
+  const unlockSym = CURRENCY_SYMBOL[unlockCurr] || unlockCurr;
+
+  return (
+    <>
+      <div data-ocid="pay.goals.panel" style={{ marginTop: 28 }}>
+        {/* Section heading */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 14,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+            <PiggyBank size={16} color="#D4AF37" />
+            <h2
+              style={{
+                fontSize: 15,
+                fontWeight: 700,
+                color: "#E8E8E8",
+                margin: 0,
+              }}
+            >
+              Savings Goals
+            </h2>
+          </div>
+          {isLoggedIn && (
+            <button
+              type="button"
+              data-ocid="pay.goals.create.button"
+              onClick={() => setCreateOpen(true)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                background: "rgba(212,175,55,0.1)",
+                border: "1px solid rgba(212,175,55,0.35)",
+                borderRadius: 20,
+                padding: "5px 12px",
+                color: "#D4AF37",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                transition: "background 0.2s ease",
+              }}
+            >
+              <Plus size={13} />
+              New Goal
+            </button>
+          )}
+        </div>
+
+        {/* Content */}
+        {!isLoggedIn ? (
+          <div
+            data-ocid="pay.goals.signin_state"
+            style={{
+              background: "#1A1A1A",
+              border: "1px solid #2A2A2A",
+              borderRadius: 12,
+              padding: "24px 16px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 10,
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: "50%",
+                background: "rgba(212,175,55,0.08)",
+                border: "1px solid rgba(212,175,55,0.2)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Target size={20} color="#D4AF37" />
+            </div>
+            <p
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                color: "#7A7A7A",
+                margin: 0,
+              }}
+            >
+              Sign in to set savings goals.
+            </p>
+          </div>
+        ) : loading ? (
+          <div
+            data-ocid="pay.goals.loading_state"
+            style={{ display: "flex", flexDirection: "column", gap: 10 }}
+          >
+            {[1, 2].map((i) => (
+              <Skeleton
+                key={i}
+                style={{ height: 110, borderRadius: 12, background: "#1A1A1A" }}
+              />
+            ))}
+          </div>
+        ) : goals.length === 0 ? (
+          <div
+            data-ocid="pay.goals.empty_state"
+            style={{
+              background: "#1A1A1A",
+              border: "1px solid #2A2A2A",
+              borderRadius: 12,
+              padding: "28px 16px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 12,
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: "50%",
+                background: "rgba(212,175,55,0.08)",
+                border: "1px solid rgba(212,175,55,0.2)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <PiggyBank size={22} color="#D4AF37" />
+            </div>
+            <div>
+              <p
+                style={{
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: "#E8E8E8",
+                  margin: "0 0 4px",
+                }}
+              >
+                No savings goals yet
+              </p>
+              <p style={{ fontSize: 12, color: "#5A5A5A", margin: 0 }}>
+                Create one to get started.
+              </p>
+            </div>
+            <button
+              type="button"
+              data-ocid="pay.goals.empty.create_button"
+              onClick={() => setCreateOpen(true)}
+              style={{
+                background: GOLD_GRADIENT,
+                border: "none",
+                borderRadius: 10,
+                padding: "9px 24px",
+                color: "rgba(0,0,0,0.85)",
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: "0 4px 16px rgba(212,175,55,0.3)",
+              }}
+            >
+              Create Goal
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <AnimatePresence initial={false}>
+              {goals.map((g) => (
+                <GoalCard
+                  key={g.id}
+                  goal={g}
+                  onAddFunds={setAddFundsGoal}
+                  onUnlock={setUnlockGoal}
+                />
+              ))}
+            </AnimatePresence>
+          </div>
+        )}
+      </div>
+
+      {/* Create Goal Modal */}
+      {actor && (
+        <CreateGoalModal
+          open={createOpen}
+          onClose={() => setCreateOpen(false)}
+          defaultCurrency={defaultCurrency}
+          balances={balances}
+          actor={actor}
+          onCreated={() => {
+            hasFetchedRef.current = false;
+            void fetchGoals();
+            onWalletRefresh();
+          }}
+        />
+      )}
+
+      {/* Add Funds Modal */}
+      {actor && (
+        <AddFundsModal
+          open={!!addFundsGoal}
+          onClose={() => setAddFundsGoal(null)}
+          goal={addFundsGoal}
+          balances={balances}
+          actor={actor}
+          onSuccess={() => {
+            setAddFundsGoal(null);
+            hasFetchedRef.current = false;
+            void fetchGoals();
+            onWalletRefresh();
+          }}
+        />
+      )}
+
+      {/* Unlock Confirmation Dialog */}
+      <Dialog
+        open={!!unlockGoal}
+        onOpenChange={(v) => !v && setUnlockGoal(null)}
+      >
+        <DialogContent
+          data-ocid="pay.goals.unlock.modal"
+          style={{
+            background: "#0F0F0F",
+            border: "1px solid #2A2A2A",
+            borderRadius: 16,
+            maxWidth: 340,
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle
+              style={{
+                color: "#E05252",
+                fontSize: 17,
+                fontWeight: 700,
+              }}
+            >
+              Unlock Goal?
+            </DialogTitle>
+          </DialogHeader>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 16,
+              marginTop: 8,
+            }}
+          >
+            <p
+              style={{
+                fontSize: 13,
+                color: "#9A9A9A",
+                lineHeight: 1.6,
+                margin: 0,
+              }}
+            >
+              Unlock this goal?{" "}
+              <span style={{ color: "#E8E8E8", fontWeight: 600 }}>
+                All {unlockSym}
+                {(unlockGoal?.lockedAmount || 0).toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                })}{" "}
+                locked funds
+              </span>{" "}
+              will be returned to your wallet.
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setUnlockGoal(null)}
+                disabled={unlocking}
+                style={{
+                  flex: 1,
+                  background: "transparent",
+                  border: "1px solid #2A2A2A",
+                  borderRadius: 10,
+                  padding: "10px 0",
+                  color: "#7A7A7A",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-ocid="pay.goals.unlock.confirm_button"
+                onClick={() => void handleUnlockConfirm()}
+                disabled={unlocking}
+                style={{
+                  flex: 1,
+                  background: "rgba(224,82,82,0.12)",
+                  border: "1px solid rgba(224,82,82,0.4)",
+                  borderRadius: 10,
+                  padding: "10px 0",
+                  color: "#E05252",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: unlocking ? "not-allowed" : "pointer",
+                  opacity: unlocking ? 0.6 : 1,
+                }}
+              >
+                {unlocking ? "Unlocking..." : "Unlock Funds"}
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export function PayScreen({
@@ -3079,6 +4276,13 @@ export function PayScreen({
                 onReceive={() => setReceiveOpen(true)}
                 onFund={() => setFundOpen(true)}
               />
+              <SavingsGoalsPanel
+                isLoggedIn={isLoggedIn}
+                actor={actor}
+                balances={balances}
+                defaultCurrency={selectedCurrency}
+                onWalletRefresh={() => void fetchWalletData()}
+              />
               <div className="mt-8">
                 <div className="flex items-center justify-between mb-3">
                   <h2
@@ -3216,6 +4420,13 @@ export function PayScreen({
                   onSend={() => setSendOpen(true)}
                   onReceive={() => setReceiveOpen(true)}
                   onFund={() => setFundOpen(true)}
+                />
+                <SavingsGoalsPanel
+                  isLoggedIn={isLoggedIn}
+                  actor={actor}
+                  balances={balances}
+                  defaultCurrency={selectedCurrency}
+                  onWalletRefresh={() => void fetchWalletData()}
                 />
               </div>
 

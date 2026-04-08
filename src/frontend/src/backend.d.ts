@@ -75,6 +75,12 @@ export interface AcceptedDeliveryWithTracking {
     trackingEntries: Array<TrackingEntry>;
     packageId: string;
 }
+export interface YouTubeVideo {
+    title: string;
+    channelTitle: string;
+    thumbnail: string;
+    videoId: string;
+}
 export interface Alert {
     id: string;
     createdAt: bigint;
@@ -85,18 +91,14 @@ export interface Alert {
     symbol: string;
     condition: string;
 }
-export type AdminResult = {
-    __kind__: "ok";
-    ok: string;
-} | {
-    __kind__: "err";
-    err: string;
-};
-export interface YouTubeVideo {
-    title: string;
-    channelTitle: string;
-    thumbnail: string;
-    videoId: string;
+export interface SavingsGoal {
+    id: string;
+    isCompleted: boolean;
+    name: string;
+    createdAt: bigint;
+    targetAmount: number;
+    currency: string;
+    lockedAmount: number;
 }
 export interface CryptoQuote {
     name: string;
@@ -104,6 +106,13 @@ export interface CryptoQuote {
     price: number;
     symbol: string;
 }
+export type AdminResult = {
+    __kind__: "ok";
+    ok: string;
+} | {
+    __kind__: "err";
+    err: string;
+};
 export interface NewsData {
     articles: Array<NewsArticle>;
     lastUpdated: bigint;
@@ -132,6 +141,13 @@ export interface RiderRoute {
     destinationCountry: string;
     cargoSpace: string;
 }
+export type SavingsGoalResult = {
+    __kind__: "ok";
+    ok: SavingsGoal;
+} | {
+    __kind__: "err";
+    err: string;
+};
 export interface Package {
     createdAt: bigint;
     size: string;
@@ -143,13 +159,6 @@ export interface Package {
     packageId: string;
     pickupLocation: string;
 }
-export type MoveResult = {
-    __kind__: "ok";
-    ok: string;
-} | {
-    __kind__: "err";
-    err: string;
-};
 export interface StockQuote {
     name: string;
     changesPercentage: number;
@@ -168,6 +177,13 @@ export interface RiderVerificationWithStatus {
     verifiedAt: bigint;
     nationalIdNumber: string;
 }
+export type MoveResult = {
+    __kind__: "ok";
+    ok: string;
+} | {
+    __kind__: "err";
+    err: string;
+};
 export type VerificationStatus = {
     __kind__: "Approved";
     Approved: {
@@ -181,6 +197,13 @@ export type VerificationStatus = {
 } | {
     __kind__: "Pending";
     Pending: null;
+};
+export type UnlockResult = {
+    __kind__: "ok";
+    ok: number;
+} | {
+    __kind__: "err";
+    err: string;
 };
 export interface SenderVerificationWithStatus {
     status: VerificationStatus;
@@ -244,10 +267,12 @@ export interface RiderVerification {
 export interface backendInterface {
     addAdmin(newAdmin: Principal): Promise<AdminResult>;
     addAlert(assetType: string, symbol: string, condition: string, targetPrice: number): Promise<Alert>;
+    addToSavingsGoal(goalId: string, amount: number): Promise<SavingsGoalResult>;
     addWalletTransaction(txType: string, currency: string, amount: number, date: string, desc: string, status: string): Promise<WalletTransaction>;
     approveRiderVerification(riderPrincipal: Principal, notes: string): Promise<AdminResult>;
     approveSenderVerification(senderPrincipal: Principal, notes: string): Promise<AdminResult>;
     clearAlertTriggered(id: string): Promise<boolean>;
+    createSavingsGoal(name: string, targetAmount: number, initialDeposit: number, currency: string): Promise<SavingsGoalResult>;
     createVirtualAccount(displayName: string): Promise<VirtualAccountResult>;
     deleteAlert(id: string): Promise<boolean>;
     deleteRoute(routeId: string): Promise<MoveResult>;
@@ -258,6 +283,7 @@ export interface backendInterface {
     getAllRiderVerifications(): Promise<Array<RiderVerificationWithStatus>>;
     getAllRoutes(): Promise<Array<RiderRoute>>;
     getAllSenderVerifications(): Promise<Array<SenderVerificationWithStatus>>;
+    getHistoricalForex(symbol: string): Promise<Array<number>>;
     getHistoricalPrices(symbol: string): Promise<Array<number>>;
     getIncomingRequests(): Promise<Array<RequestWithPackage>>;
     getMarketData(): Promise<MarketData>;
@@ -265,6 +291,7 @@ export interface backendInterface {
     getNewsData(): Promise<NewsData>;
     getRiderRoutes(): Promise<Array<RiderRoute>>;
     getRiderVerification(): Promise<RiderVerification | null>;
+    getSavingsGoals(): Promise<Array<SavingsGoal>>;
     getSenderPackages(): Promise<Array<Package>>;
     getSenderRequests(): Promise<Array<DeliveryRequest>>;
     getSenderTrackings(): Promise<Array<ShipmentTracking>>;
@@ -293,6 +320,7 @@ export interface backendInterface {
     sendMoney(recipientPrincipal: string, amount: number, currency: string, dateStr: string): Promise<SendMoneyResult>;
     submitRiderVerification(nationalIdNumber: string, licenseNumber: string, licenseType: string, vehicleRegistrationNumber: string, nationalIdDocUrl: string | null, licenseDocUrl: string | null, vehicleRegDocUrl: string | null): Promise<MoveResult>;
     submitSenderVerification(phoneNumber: string, nationalIdNumber: string, nationalIdDocUrl: string | null): Promise<MoveResult>;
+    unlockSavingsGoal(goalId: string): Promise<UnlockResult>;
     updateAlert(id: string, isActive: boolean): Promise<boolean>;
     updateRoute(routeId: string, vehicleType: string, departureCity: string, departureCountry: string, destinationCity: string, destinationCountry: string, travelDate: string, cargoSpace: string): Promise<MoveResult>;
     updateShipmentStatus(requestId: string, newStatus: string): Promise<MoveResult>;

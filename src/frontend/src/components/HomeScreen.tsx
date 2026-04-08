@@ -844,6 +844,7 @@ export function HomeScreen({
           <DonutChart
             balances={walletBalances}
             isLoggedIn={isLoggedIn}
+            loading={balancesLoading}
             liveRates={getLiveRates()}
           />
         </div>

@@ -17,6 +17,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
+  AlertTriangle,
   BellOff,
   Play,
   Plus,
@@ -946,10 +947,20 @@ export function AlertsScreen({
   const [loadingVideos, setLoadingVideos] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState<YouTubeVideo | null>(null);
+  // Inline error indicator for the 60s alert-check interval
+  const [alertCheckError, setAlertCheckError] = useState(false);
   // Tracks whether the initial load has been attempted at least once
   const loadAttemptedRef = useRef(false);
   // Issue 32: loadIdRef prevents stale loadAll from applying after tab switch
   const loadIdRef = useRef(0);
+  // isMounted guard — prevents state updates after the component unmounts (rapid tab switch)
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Keep a ref to latest alerts for the interval callback
   const alertsRef = useRef<Alert[]>([]);
@@ -988,6 +999,8 @@ export function AlertsScreen({
     setLoadingAlerts(true);
     setLoadingMarket(true);
     setLoadingVideos(true);
+    // Clear any lingering interval error on manual refresh
+    setAlertCheckError(false);
 
     // If no actor (logged out), stop spinners immediately — no canister calls
     if (!actor) {
@@ -1003,8 +1016,8 @@ export function AlertsScreen({
       withTimeout(actor.getMarketData(), null as MarketData | null),
     ]);
 
-    // Issue 32: bail if a newer loadAll has started
-    if (loadIdRef.current !== myId) return;
+    // Bail if a newer loadAll has started or component unmounted
+    if (loadIdRef.current !== myId || !isMountedRef.current) return;
 
     setAlerts(alertData);
     setLoadingAlerts(false);
@@ -1021,7 +1034,7 @@ export function AlertsScreen({
       [] as YouTubeVideo[],
     );
 
-    if (loadIdRef.current !== myId) return;
+    if (loadIdRef.current !== myId || !isMountedRef.current) return;
     setVideos(videoData.slice(0, 6));
     setLoadingVideos(false);
   }, [actor]);
@@ -1097,22 +1110,30 @@ export function AlertsScreen({
     if (!isActive || !actor) return;
 
     const interval = setInterval(async () => {
-      // Issue 21: outer try/catch ensures interval never dies silently
       try {
         const freshMarket = await withTimeout(
           actor.getMarketData(),
           null as MarketData | null,
         );
+        if (!isMountedRef.current) return;
         if (freshMarket) {
           setMarketData(freshMarket);
+          // Clear any previous interval error on success
+          setAlertCheckError(false);
           try {
             await checkAlerts(freshMarket);
           } catch (err) {
             console.error("checkAlerts error:", err);
+            // Surface error — keep previously-loaded alerts visible
+            if (isMountedRef.current) setAlertCheckError(true);
           }
+        } else {
+          // Market fetch timed out or returned null — surface error
+          if (isMountedRef.current) setAlertCheckError(true);
         }
       } catch (err) {
         console.error("Market data interval error:", err);
+        if (isMountedRef.current) setAlertCheckError(true);
       }
     }, 60_000);
 
@@ -1539,6 +1560,50 @@ export function AlertsScreen({
             <Plus size={20} color="rgba(0,0,0,0.8)" strokeWidth={2.5} />
           </button>
         </div>
+
+        {/* ── Interval error banner — shown when the 60s alert check fails ── */}
+        {alertCheckError && (
+          <div
+            data-ocid="alerts.check.error_banner"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              background: "rgba(212,175,55,0.07)",
+              border: "1px solid rgba(212,175,55,0.2)",
+              borderRadius: 10,
+              padding: "10px 14px",
+              marginBottom: 16,
+            }}
+          >
+            <AlertTriangle
+              size={14}
+              style={{ color: "#D4AF37", flexShrink: 0 }}
+            />
+            <span style={{ fontSize: 12, color: "#9A9A9A", flex: 1 }}>
+              Alert check failed — will retry in 60s
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setAlertCheckError(false);
+                loadAll();
+              }}
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#D4AF37",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: "0 2px",
+                flexShrink: 0,
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         {/* ── Full empty state when logged out and nothing loaded ── */}
         {nothingLoaded ? (

@@ -1,5 +1,5 @@
 import { Switch } from "@/components/ui/switch";
-import { ChevronRight, Loader2, User } from "lucide-react";
+import { Camera, ChevronRight, Loader2, User } from "lucide-react";
 import { useRef, useState } from "react";
 import { AboutScreen } from "./AboutScreen";
 
@@ -18,7 +18,9 @@ interface ProfileScreenProps {
   isLoggingIn: boolean;
   isInitializing: boolean;
   displayName: string;
+  avatarUrl?: string;
   onSaveDisplayName: (name: string) => Promise<void>;
+  onSaveAvatarUrl: (url: string) => Promise<void>;
   onLogout: () => void;
 }
 
@@ -29,14 +31,11 @@ const LANGUAGES = [
   { value: "french", label: "French" },
 ];
 
-/** Compute initials from a display name */
 function getInitials(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) return "";
   const words = trimmed.split(/\s+/);
-  if (words.length === 1) {
-    return trimmed.slice(0, 2).toUpperCase();
-  }
+  if (words.length === 1) return trimmed.slice(0, 2).toUpperCase();
   return (words[0].charAt(0) + words[words.length - 1].charAt(0)).toUpperCase();
 }
 
@@ -69,13 +68,7 @@ function PillRow({
   ocidPrefix: string;
 }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        gap: 8,
-        flexWrap: "wrap",
-      }}
-    >
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
       {options.map((opt) => {
         const isSelected = opt.value === selected;
         return (
@@ -121,15 +114,20 @@ export function ProfileScreen({
   isLoggingIn,
   isInitializing,
   displayName,
+  avatarUrl,
   onSaveDisplayName,
+  onSaveAvatarUrl,
   onLogout,
 }: ProfileScreenProps) {
   const [showAbout, setShowAbout] = useState(false);
-  const [nameInput, setNameInput] = useState(displayName);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
     "idle",
   );
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState(displayName);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isLoggedIn = !!identity;
   const initials = getInitials(displayName);
@@ -140,10 +138,51 @@ export function ProfileScreen({
     try {
       await onSaveDisplayName(nameInput);
       setSaveStatus("saved");
+      setIsEditingName(false);
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => setSaveStatus("idle"), 2200);
     } catch {
       setSaveStatus("idle");
+    }
+  }
+
+  function handleEditNameClick() {
+    setNameInput(displayName);
+    setIsEditingName(true);
+  }
+
+  function handleAvatarUploadClick() {
+    fileInputRef.current?.click();
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Only accept images
+    if (!file.type.startsWith("image/")) return;
+
+    // Limit to 2MB
+    if (file.size > 2 * 1024 * 1024) {
+      alert("Image must be under 2MB");
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      await onSaveAvatarUrl(dataUrl);
+    } catch {
+      // silently fail
+    } finally {
+      setIsUploadingAvatar(false);
+      // Reset input so same file can be re-selected
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
@@ -171,40 +210,112 @@ export function ProfileScreen({
             paddingTop: 8,
           }}
         >
-          {/* Avatar */}
+          {/* Avatar with upload button */}
           {isLoggedIn ? (
-            /* Logged-in avatar: gold gradient with initials */
-            <div
-              style={{
-                width: 72,
-                height: 72,
-                borderRadius: "50%",
-                background:
-                  "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                marginBottom: 12,
-                boxShadow:
-                  "0 0 28px rgba(212,175,55,0.35), 0 4px 16px rgba(0,0,0,0.5)",
-                flexShrink: 0,
-              }}
-              data-ocid="profile.avatar"
-            >
-              <span
+            <div style={{ position: "relative", marginBottom: 12 }}>
+              {/* Avatar circle */}
+              {avatarUrl ? (
+                <div
+                  style={{
+                    width: 72,
+                    height: 72,
+                    borderRadius: "50%",
+                    overflow: "hidden",
+                    boxShadow:
+                      "0 0 28px rgba(212,175,55,0.35), 0 4px 16px rgba(0,0,0,0.5)",
+                    border: "2px solid #D4AF37",
+                    flexShrink: 0,
+                  }}
+                  data-ocid="profile.avatar"
+                >
+                  <img
+                    src={avatarUrl}
+                    alt="Profile"
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                    }}
+                  />
+                </div>
+              ) : (
+                <div
+                  style={{
+                    width: 72,
+                    height: 72,
+                    borderRadius: "50%",
+                    background:
+                      "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    boxShadow:
+                      "0 0 28px rgba(212,175,55,0.35), 0 4px 16px rgba(0,0,0,0.5)",
+                    flexShrink: 0,
+                  }}
+                  data-ocid="profile.avatar"
+                >
+                  <span
+                    style={{
+                      fontSize: 24,
+                      fontWeight: 700,
+                      color: "rgba(0,0,0,0.85)",
+                      letterSpacing: "0.04em",
+                      lineHeight: 1,
+                    }}
+                  >
+                    {initials || <User size={28} color="rgba(0,0,0,0.75)" />}
+                  </span>
+                </div>
+              )}
+
+              {/* Upload button overlay */}
+              <button
+                type="button"
+                data-ocid="profile.avatar_upload.button"
+                onClick={handleAvatarUploadClick}
+                disabled={isUploadingAvatar}
+                aria-label="Upload profile picture"
                 style={{
-                  fontSize: 24,
-                  fontWeight: 700,
-                  color: "rgba(0,0,0,0.85)",
-                  letterSpacing: "0.04em",
-                  lineHeight: 1,
+                  position: "absolute",
+                  bottom: 0,
+                  right: 0,
+                  width: 24,
+                  height: 24,
+                  borderRadius: "50%",
+                  background:
+                    "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)",
+                  border: "2px solid #0A0A0A",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: isUploadingAvatar ? "not-allowed" : "pointer",
+                  opacity: isUploadingAvatar ? 0.6 : 1,
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
                 }}
               >
-                {initials || <User size={28} color="rgba(0,0,0,0.75)" />}
-              </span>
+                {isUploadingAvatar ? (
+                  <Loader2
+                    size={11}
+                    className="animate-spin"
+                    color="rgba(0,0,0,0.8)"
+                  />
+                ) : (
+                  <Camera size={11} color="rgba(0,0,0,0.85)" />
+                )}
+              </button>
+
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={handleFileChange}
+                data-ocid="profile.avatar_file.input"
+              />
             </div>
           ) : (
-            /* Logged-out avatar: grey user icon */
             <div
               style={{
                 width: 72,
@@ -225,7 +336,7 @@ export function ProfileScreen({
             </div>
           )}
 
-          {/* Logged-in: display name + name input row */}
+          {/* Logged-in: display name (tap-to-edit) + sign out */}
           {isLoggedIn ? (
             <div
               style={{
@@ -236,83 +347,146 @@ export function ProfileScreen({
                 gap: 10,
               }}
             >
-              {/* Display name text */}
-              <p
-                style={{
-                  fontSize: 16,
-                  fontWeight: 600,
-                  color: displayName ? "#E8E8E8" : "rgba(212,175,55,0.6)",
-                  letterSpacing: "0.02em",
-                  marginBottom: 2,
-                }}
-              >
-                {displayName || "Set your name"}
-              </p>
-
-              {/* Name input + Save button */}
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "row",
-                  gap: 8,
-                  width: "100%",
-                  maxWidth: 320,
-                  alignItems: "center",
-                }}
-              >
-                <input
-                  type="text"
-                  value={nameInput}
-                  onChange={(e) => setNameInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && void handleSaveName()}
-                  placeholder="Your display name"
-                  data-ocid="profile.display_name.input"
-                  maxLength={40}
+              {/* Name: label or inline edit */}
+              {isEditingName ? (
+                <div
                   style={{
-                    flex: 1,
-                    background: "#0F0F0F",
-                    border: "1px solid #D4AF37",
-                    borderRadius: 10,
-                    color: "#E8E8E8",
-                    padding: "8px 12px",
-                    fontSize: 14,
-                    outline: "none",
-                    minWidth: 0,
-                  }}
-                />
-                <button
-                  type="button"
-                  data-ocid="profile.save_name.button"
-                  onClick={() => void handleSaveName()}
-                  disabled={saveStatus === "saving"}
-                  style={{
-                    background:
-                      "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)",
-                    border: "none",
-                    borderRadius: 8,
-                    padding: "8px 16px",
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: "rgba(0,0,0,0.85)",
-                    cursor: saveStatus === "saving" ? "not-allowed" : "pointer",
-                    whiteSpace: "nowrap",
                     display: "flex",
+                    flexDirection: "row",
+                    gap: 8,
+                    width: "100%",
+                    maxWidth: 320,
                     alignItems: "center",
-                    gap: 5,
-                    opacity: saveStatus === "saving" ? 0.7 : 1,
-                    transition: "opacity 0.15s ease",
-                    flexShrink: 0,
                   }}
                 >
-                  {saveStatus === "saving" ? (
-                    <Loader2 size={13} className="animate-spin" />
-                  ) : saveStatus === "saved" ? (
-                    "Saved ✓"
-                  ) : (
-                    "Save"
-                  )}
+                  <input
+                    type="text"
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void handleSaveName();
+                      if (e.key === "Escape") setIsEditingName(false);
+                    }}
+                    placeholder="Your display name"
+                    data-ocid="profile.display_name.input"
+                    maxLength={40}
+                    ref={(el) => el?.focus()}
+                    style={{
+                      flex: 1,
+                      background: "#0F0F0F",
+                      border: "1px solid #D4AF37",
+                      borderRadius: 10,
+                      color: "#E8E8E8",
+                      padding: "8px 12px",
+                      fontSize: 14,
+                      outline: "none",
+                      minWidth: 0,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    data-ocid="profile.save_name.button"
+                    onClick={() => void handleSaveName()}
+                    disabled={saveStatus === "saving"}
+                    style={{
+                      background:
+                        "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)",
+                      border: "none",
+                      borderRadius: 8,
+                      padding: "8px 14px",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: "rgba(0,0,0,0.85)",
+                      cursor:
+                        saveStatus === "saving" ? "not-allowed" : "pointer",
+                      whiteSpace: "nowrap",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                      opacity: saveStatus === "saving" ? 0.7 : 1,
+                      transition: "opacity 0.15s ease",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {saveStatus === "saving" ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      "Save"
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingName(false)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "#666",
+                      fontSize: 13,
+                      padding: "8px 4px",
+                      flexShrink: 0,
+                    }}
+                    aria-label="Cancel edit"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  data-ocid="profile.display_name.label"
+                  onClick={handleEditNameClick}
+                  title="Tap to edit your name"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: "4px 12px",
+                    borderRadius: 8,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    transition: "background 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background =
+                      "rgba(212,175,55,0.07)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background =
+                      "none";
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 600,
+                      color: displayName ? "#E8E8E8" : "rgba(212,175,55,0.6)",
+                      letterSpacing: "0.02em",
+                    }}
+                  >
+                    {saveStatus === "saved"
+                      ? `${displayName} ✓`
+                      : displayName || "Set your name"}
+                  </span>
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    aria-hidden="true"
+                    style={{ color: "#D4AF37", opacity: 0.7, flexShrink: 0 }}
+                  >
+                    <path
+                      d="M8.5 1.5L10.5 3.5L4 10H2V8L8.5 1.5Z"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                 </button>
-              </div>
+              )}
 
               {/* Sign Out button */}
               <button
@@ -352,7 +526,6 @@ export function ProfileScreen({
               }}
             >
               {isInitializing ? (
-                /* Brief initializing state: show subtle loader */
                 <div
                   style={{
                     display: "flex",
@@ -505,9 +678,7 @@ export function ProfileScreen({
               checked={hideBalance}
               onCheckedChange={setHideBalance}
               aria-label="Hide balance"
-              style={{
-                flexShrink: 0,
-              }}
+              style={{ flexShrink: 0 }}
             />
           </div>
 
@@ -549,9 +720,7 @@ export function ProfileScreen({
               checked={hideTransactions}
               onCheckedChange={setHideTransactions}
               aria-label="Hide transaction history"
-              style={{
-                flexShrink: 0,
-              }}
+              style={{ flexShrink: 0 }}
             />
           </div>
         </div>
@@ -574,13 +743,7 @@ export function ProfileScreen({
             transition: "background 0.15s ease",
           }}
         >
-          <span
-            style={{
-              fontSize: 14,
-              fontWeight: 600,
-              color: "#E8E8E8",
-            }}
-          >
+          <span style={{ fontSize: 14, fontWeight: 600, color: "#E8E8E8" }}>
             About Stancard
           </span>
           <ChevronRight size={18} color="#D4AF37" />

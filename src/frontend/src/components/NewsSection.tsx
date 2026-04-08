@@ -228,7 +228,7 @@ export function ArticlePreviewModal({
             className="w-full overflow-y-auto"
             style={{
               maxWidth: "430px",
-              maxHeight: "calc(85dvh - env(safe-area-inset-bottom, 0px))",
+              maxHeight: "min(85dvh, calc(100dvh - 120px))",
               background: "#111111",
               borderRadius: "20px 20px 0 0",
               borderTop: "1px solid #2A2000",
@@ -272,7 +272,12 @@ export function ArticlePreviewModal({
             </div>
 
             {/* Content area */}
-            <div className="px-5 pb-6 pt-4">
+            <div
+              className="px-5 pt-4"
+              style={{
+                paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))",
+              }}
+            >
               {/* Category + Source row */}
               <div className="flex items-center gap-2 flex-wrap">
                 <span

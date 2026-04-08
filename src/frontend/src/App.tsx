@@ -27,6 +27,7 @@ interface UserProfile {
   language: string;
   hideBalance: boolean;
   hideTransactions: boolean;
+  avatarUrl?: string;
 }
 
 interface ExtendedActor {
@@ -37,6 +38,7 @@ interface ExtendedActor {
     language: string,
     hideBalance: boolean,
     hideTransactions: boolean,
+    avatarUrl?: string,
   ) => Promise<UserProfile>;
   getWalletBalances: () => Promise<{ currency: string; amount: number }[]>;
   getWalletTransactions: () => Promise<
@@ -246,6 +248,9 @@ export default function App() {
   const [displayName, setDisplayNameState] = useState<string>(
     () => localStorage.getItem("stancard_display_name") || "",
   );
+  const [avatarUrl, setAvatarUrlState] = useState<string>(
+    () => localStorage.getItem("stancard_avatar_url") || "",
+  );
 
   const prevIdentityRef = useRef<typeof identity>(identity);
   const prefsRef = useRef({
@@ -254,6 +259,7 @@ export default function App() {
     language,
     hideBalance,
     hideTransactions,
+    avatarUrl,
   });
   prefsRef.current = {
     displayName,
@@ -261,6 +267,7 @@ export default function App() {
     language,
     hideBalance,
     hideTransactions,
+    avatarUrl,
   };
 
   // Issue 28: guard to prevent preference sync double-firing within the same login session
@@ -281,10 +288,6 @@ export default function App() {
   function setLanguage(v: string) {
     setLanguageState(v);
     localStorage.setItem("stancard_language", JSON.stringify(v));
-  }
-  function setDisplayName(v: string) {
-    setDisplayNameState(v);
-    localStorage.setItem("stancard_display_name", v);
   }
 
   // ── Add to Home Screen effect ──
@@ -357,6 +360,10 @@ export default function App() {
           setPreferredCurrencyState(profile.preferredCurrency);
           setLanguageState(profile.language);
           setDisplayNameState(profile.displayName);
+          if (profile.avatarUrl) {
+            setAvatarUrlState(profile.avatarUrl);
+            localStorage.setItem("stancard_avatar_url", profile.avatarUrl);
+          }
           localStorage.setItem(
             "stancard_hide_balance",
             JSON.stringify(profile.hideBalance),
@@ -381,6 +388,7 @@ export default function App() {
             prefs.language,
             prefs.hideBalance,
             prefs.hideTransactions,
+            prefs.avatarUrl,
           );
         }
       } catch (err) {
@@ -390,7 +398,8 @@ export default function App() {
   }, [identity]);
 
   async function onSaveDisplayName(name: string) {
-    setDisplayName(name);
+    setDisplayNameState(name);
+    localStorage.setItem("stancard_display_name", name);
     if (actor) {
       const prefs = prefsRef.current;
       try {
@@ -400,9 +409,30 @@ export default function App() {
           prefs.language,
           prefs.hideBalance,
           prefs.hideTransactions,
+          prefs.avatarUrl,
         );
       } catch (err) {
         console.error("Failed to save profile:", err);
+      }
+    }
+  }
+
+  async function onSaveAvatarUrl(url: string) {
+    setAvatarUrlState(url);
+    localStorage.setItem("stancard_avatar_url", url);
+    if (actor) {
+      const prefs = prefsRef.current;
+      try {
+        await actor.saveUserProfile(
+          prefs.displayName,
+          prefs.preferredCurrency,
+          prefs.language,
+          prefs.hideBalance,
+          prefs.hideTransactions,
+          url,
+        );
+      } catch (err) {
+        console.error("Failed to save avatar:", err);
       }
     }
   }
@@ -495,7 +525,9 @@ export default function App() {
           isLoggingIn={isLoggingIn}
           isInitializing={isInitializing}
           displayName={displayName}
+          avatarUrl={avatarUrl}
           onSaveDisplayName={onSaveDisplayName}
+          onSaveAvatarUrl={onSaveAvatarUrl}
           onLogout={handleLogout}
         />
       )}
@@ -515,6 +547,7 @@ export default function App() {
       <AppHeader
         displayName={displayName}
         isLoggedIn={!!identity}
+        avatarUrl={avatarUrl}
         onAvatarClick={() => setActiveTab("profile")}
         onBellClick={() => setActiveTab("alerts")}
       />

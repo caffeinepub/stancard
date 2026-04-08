@@ -180,8 +180,9 @@ interface MoveScreenProps {
   identity: unknown;
   actor: (MoveActor & Record<string, unknown>) | null;
   onTrackShipment?: (code: string) => void;
-  // ISSUE 10: display name for Flutterwave customer
+  // display name and email for Flutterwave customer — use real values, never hardcode
   displayName?: string;
+  userEmail?: string;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -2143,14 +2144,15 @@ function MovePaymentModal({
   onSuccess,
   onClose,
   displayName,
+  userEmail,
 }: {
   pkg: PackageType;
   route: RiderRoute;
   actor: MoveActor;
   onSuccess: () => void;
   onClose: () => void;
-  // ISSUE 10: use real display name for Flutterwave customer
   displayName?: string;
+  userEmail?: string;
 }) {
   const fee = MOVE_FEES[pkg.size] ?? 2000;
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
@@ -2272,10 +2274,8 @@ function MovePaymentModal({
       amount: fee,
       currency: "NGN",
       customer: {
-        // Issue 10: use real display name/email — never hardcode
-        email: displayName
-          ? `${displayName.toLowerCase().replace(/\s+/g, ".")}@stancard.user`
-          : "user@stancard.space",
+        // Use real user email when available; never generate a fake address
+        email: userEmail || "noreply@stancard.space",
         name: displayName || "Stancard User",
       },
       customizations: {
@@ -2643,6 +2643,7 @@ function MatchedRidersPanel({
   onRequestSent,
   onClose,
   displayName,
+  userEmail,
 }: {
   pkg: PackageType;
   actor: MoveActor;
@@ -2650,6 +2651,7 @@ function MatchedRidersPanel({
   onRequestSent: () => void;
   onClose: () => void;
   displayName?: string;
+  userEmail?: string;
 }) {
   const [riders, setRiders] = useState<RiderRoute[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2971,6 +2973,7 @@ function MatchedRidersPanel({
             }}
             onClose={() => setPaymentRoute(null)}
             displayName={displayName}
+            userEmail={userEmail}
           />
         </AnimatePresence>
       )}
@@ -2985,6 +2988,7 @@ export function MoveScreen({
   actor,
   onTrackShipment,
   displayName,
+  userEmail,
 }: MoveScreenProps) {
   const isLoggedIn = identity !== null && identity !== undefined;
   const [role, setRole] = useState<Role>("rider");
@@ -4603,6 +4607,7 @@ export function MoveScreen({
             }}
             onClose={() => setMatchingPkg(null)}
             displayName={displayName}
+            userEmail={userEmail}
           />
         )}
       </AnimatePresence>

@@ -3,8 +3,8 @@ import { Bell, User } from "lucide-react";
 interface AppHeaderProps {
   displayName?: string;
   isLoggedIn?: boolean;
+  avatarUrl?: string;
   onAvatarClick?: () => void;
-  // ISSUE 1: Add onBellClick prop
   onBellClick?: () => void;
 }
 
@@ -18,10 +18,13 @@ function getInitials(name: string): string {
 export function AppHeader({
   displayName,
   isLoggedIn,
+  avatarUrl,
   onAvatarClick,
   onBellClick,
 }: AppHeaderProps) {
   const initials = displayName ? getInitials(displayName) : "";
+  const showImage = isLoggedIn && !!avatarUrl;
+  const showInitials = isLoggedIn && !avatarUrl && !!initials;
 
   return (
     <header
@@ -51,7 +54,7 @@ export function AppHeader({
         </span>
       </div>
 
-      {/* Right side: bell + avatar (all screen sizes) */}
+      {/* Right side: bell + avatar */}
       <div className="flex items-center gap-3">
         {/* Notification Bell */}
         <button
@@ -73,23 +76,41 @@ export function AppHeader({
         <button
           type="button"
           onClick={onAvatarClick}
-          className="flex items-center justify-center flex-shrink-0"
+          className="flex items-center justify-center flex-shrink-0 overflow-hidden"
           style={{
             width: 36,
             height: 36,
             borderRadius: "50%",
-            background:
-              isLoggedIn && initials
+            background: showImage
+              ? "transparent"
+              : showInitials
                 ? "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)"
                 : "transparent",
-            border: isLoggedIn && initials ? "none" : "1.5px solid #D4AF37",
+            border:
+              showImage || showInitials
+                ? showImage
+                  ? "1.5px solid #D4AF37"
+                  : "none"
+                : "1.5px solid #D4AF37",
             cursor: "pointer",
             flexShrink: 0,
+            padding: 0,
           }}
           aria-label={isLoggedIn ? "Profile" : "Sign in"}
           data-ocid="header.avatar_button"
         >
-          {isLoggedIn && initials ? (
+          {showImage ? (
+            <img
+              src={avatarUrl}
+              alt="Profile"
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                borderRadius: "50%",
+              }}
+            />
+          ) : showInitials ? (
             <span
               style={{
                 fontSize: 13,

@@ -4,6 +4,7 @@ import {
   Copy,
   Loader2,
   Package,
+  RefreshCw,
   Search,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -371,6 +372,7 @@ export function TrackingPage({
   const [tracking, setTracking] = useState<ShipmentTracking | null>(null);
   const [loading, setLoading] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const [timedOut, setTimedOut] = useState(false);
   const [searched, setSearched] = useState(false);
   // ISSUE 4: separate state for actor-not-ready vs genuine not-found
   const [actorNotReady, setActorNotReady] = useState(false);
@@ -392,12 +394,13 @@ export function TrackingPage({
       return;
     }
     setActorNotReady(false);
+    setTimedOut(false);
     setLoading(true);
     setNotFound(false);
     setTracking(null);
     setSearched(false);
     try {
-      // Issue 16: 8-second timeout on getTrackingByCode
+      // 8-second timeout on getTrackingByCode
       const fetchPromise = actor.getTrackingByCode(code.trim().toUpperCase());
       const timeoutPromise = new Promise<never>((_, rej) =>
         setTimeout(() => rej(new Error("Request timed out")), 8000),
@@ -409,13 +412,12 @@ export function TrackingPage({
         setNotFound(true);
       }
     } catch (err) {
-      // Issue 16: distinguish timeout from genuine not-found
       const isTimeout =
         err instanceof Error && err.message === "Request timed out";
-      setNotFound(true);
       if (isTimeout) {
-        // Show timeout message via the not-found block; message is set below
-        console.warn("Tracking lookup timed out");
+        setTimedOut(true);
+      } else {
+        setNotFound(true);
       }
     } finally {
       setLoading(false);
@@ -428,6 +430,7 @@ export function TrackingPage({
     const code = inputCode.trim().toUpperCase();
     if (!code) return;
     setActiveCode(code);
+    setTimedOut(false);
     void fetchTracking(code);
   }
 
@@ -782,6 +785,79 @@ export function TrackingPage({
           </motion.div>
         )}
 
+        {/* Timed out — separate from not-found */}
+        {!loading && timedOut && searched && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            style={{
+              background: "#111",
+              border: "1px solid rgba(212,175,55,0.2)",
+              borderRadius: 14,
+              padding: 32,
+              textAlign: "center",
+            }}
+            data-ocid="move.tracking.timeout_state"
+          >
+            <div
+              style={{
+                width: 52,
+                height: 52,
+                borderRadius: "50%",
+                background: "rgba(212,175,55,0.07)",
+                border: "1px solid rgba(212,175,55,0.25)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                margin: "0 auto 16px",
+              }}
+            >
+              <Package size={24} style={{ color: "#D4AF37" }} />
+            </div>
+            <h3
+              style={{
+                color: "#E8E8E8",
+                fontSize: 16,
+                fontWeight: 700,
+                marginBottom: 8,
+              }}
+            >
+              Request Timed Out
+            </h3>
+            <p style={{ color: "#6C6C6C", fontSize: 13, marginBottom: 20 }}>
+              Unable to load tracking info. Please try again.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setTimedOut(false);
+                setSearched(false);
+                const code = (activeCode || inputCode.trim()).toUpperCase();
+                if (code) void fetchTracking(code);
+              }}
+              style={{
+                background:
+                  "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)",
+                border: "none",
+                borderRadius: 8,
+                color: "rgba(0,0,0,0.85)",
+                fontWeight: 700,
+                fontSize: 13,
+                padding: "9px 20px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                margin: "0 auto",
+              }}
+              data-ocid="move.tracking.timeout_retry.button"
+            >
+              <RefreshCw size={13} />
+              Retry
+            </button>
+          </motion.div>
+        )}
+
         {/* Tracking result */}
         <AnimatePresence>
           {!loading && tracking && (
@@ -1019,7 +1095,7 @@ export function TrackingPage({
 
         {/* Empty state — no code entered yet (only when actor is ready) */}
         {/* Issue 37: guard against dual flash while actor initialises */}
-        {!loading && !tracking && !notFound && !actorNotReady && (
+        {!loading && !tracking && !notFound && !timedOut && !actorNotReady && (
           <div
             style={{
               display: "flex",

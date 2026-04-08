@@ -626,10 +626,10 @@ function FundWalletModal({
       amount: parsed,
       currency: currency,
       customer: {
-        // Issue 2: derive email from displayName if no real email available
+        // Use displayName-derived email — cleaner than a static placeholder
         email: displayName
-          ? `${displayName.toLowerCase().replace(/\s+/g, ".")}@stancard.user`
-          : "user@stancard.space",
+          ? `${displayName.toLowerCase().replace(/\s+/g, ".")}@stancard.app`
+          : "wallet@stancard.app",
         name: displayName || "Stancard User",
       },
       customizations: {
@@ -1301,6 +1301,8 @@ function ReceiveModal({
   const [vaExpired, setVaExpired] = useState(false);
   const [vaRetryCount, setVaRetryCount] = useState(0);
   const MAX_RETRIES = 3;
+  // Track the last currency for which we initiated a VA load, to avoid re-triggering
+  const vaLoadedForCurrencyRef = useRef<string | null>(null);
 
   // Sync currency when defaultCurrency changes
   useEffect(() => {
@@ -1313,6 +1315,8 @@ function ReceiveModal({
     setVaError("");
     setVaExpired(false);
     setVaRetryCount(0);
+    setVirtualAccount(null);
+    vaLoadedForCurrencyRef.current = null;
     setAmount("");
     setError("");
     onClose();
@@ -1324,7 +1328,7 @@ function ReceiveModal({
     setVaLoading(true);
     setVaError("");
     setVaExpired(false);
-    // Issue 11: wrap all VA canister calls with 8-second timeout
+    // 8-second timeout on all VA canister calls
     const timeout = <T,>(p: Promise<T>): Promise<T> =>
       Promise.race([
         p,
@@ -1359,24 +1363,41 @@ function ReceiveModal({
     }
   }, [actor, isLoggedIn, displayName]);
 
-  // Issue 38: also trigger VA load when switching back to NGN if the account is expired
+  // Trigger VA load when opening for NGN, or when switching back to NGN with an expired account.
+  // Uses vaLoadedForCurrencyRef to prevent re-triggering on every render cycle.
   useEffect(() => {
-    const isExpired = virtualAccount
+    if (!open || currency !== "NGN" || !isLoggedIn) {
+      // Reset the load-tracker when modal closes or currency switches away from NGN
+      if (!open) vaLoadedForCurrencyRef.current = null;
+      return;
+    }
+
+    // Check if the cached account is expired
+    const expired = virtualAccount
       ? isAccountExpired(virtualAccount.expiresAt)
       : false;
-    if (isExpired) {
-      // Clear expired VA so a fresh fetch is triggered
-      setVirtualAccount(null);
-    }
-    if (
-      open &&
-      currency === "NGN" &&
-      isLoggedIn &&
-      (!virtualAccount || isExpired)
-    ) {
+
+    const needsLoad = !virtualAccount || expired;
+    const alreadyLoading = vaLoading;
+    const sessionKey = `${open}-${currency}`;
+    const alreadyTriggered = vaLoadedForCurrencyRef.current === sessionKey;
+
+    if (needsLoad && !alreadyLoading && !alreadyTriggered) {
+      vaLoadedForCurrencyRef.current = sessionKey;
+      if (expired) {
+        setVirtualAccount(null);
+        setVaExpired(false);
+      }
       void loadVirtualAccount();
     }
-  }, [open, currency, isLoggedIn, virtualAccount, loadVirtualAccount]);
+  }, [
+    open,
+    currency,
+    isLoggedIn,
+    virtualAccount,
+    vaLoading,
+    loadVirtualAccount,
+  ]);
 
   async function handleRefresh() {
     if (!actor) return;
@@ -1384,7 +1405,8 @@ function ReceiveModal({
     setVaError("");
     setVaExpired(false);
     setVirtualAccount(null);
-    // Issue 11: 8-second timeout on refresh
+    vaLoadedForCurrencyRef.current = null;
+    // 8-second timeout on refresh
     const timeout = <T,>(p: Promise<T>): Promise<T> =>
       Promise.race([
         p,
@@ -1616,6 +1638,7 @@ function ReceiveModal({
                   setVaError("");
                   setVirtualAccount(null);
                   setVaRetryCount((c) => c + 1);
+                  vaLoadedForCurrencyRef.current = null;
                   void loadVirtualAccount();
                 }}
                 style={{
@@ -2299,14 +2322,12 @@ export function PayScreen({
   const [sendOpen, setSendOpen] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
 
-  const hasFetchedRef = useRef(false);
-
   const fetchWalletData = useCallback(async () => {
     if (!actor || !isLoggedIn) return;
     setLoadingBalances(true);
     setBalanceError(false);
     try {
-      // Issue 19: 8-second timeout on wallet data fetch
+      // 8-second timeout on wallet data fetch
       const fetchPromise = Promise.all([
         actor.getWalletBalances(),
         actor.getWalletTransactions(),
@@ -2341,25 +2362,17 @@ export function PayScreen({
     }
   }, [actor, isLoggedIn]);
 
-  // Issue 1: reset hasFetchedRef every time tab becomes active (isActive → true)
-  // so each tab visit re-fetches fresh balances. Previously only reset on logout.
+  // Re-fetch wallet data every time the Pay tab becomes active — no caching across visits.
   const prevIsActiveRef = useRef(false);
   useEffect(() => {
     const becameActive = isActive && !prevIsActiveRef.current;
     prevIsActiveRef.current = isActive;
 
-    if (becameActive && isLoggedIn) {
-      // Reset so the fetch below runs
-      hasFetchedRef.current = false;
-    }
-
-    if (isActive && isLoggedIn && actor && !hasFetchedRef.current) {
-      hasFetchedRef.current = true;
+    if (becameActive && isLoggedIn && actor) {
       void fetchWalletData();
     }
-    // Reset fetch flag when logged out so next login triggers a fresh fetch
+    // Clear stale data when logged out
     if (!isLoggedIn) {
-      hasFetchedRef.current = false;
       setBalances(ZERO_BALANCES);
       setTransactions([]);
       setBalanceError(false);

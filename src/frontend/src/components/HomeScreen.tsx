@@ -7,7 +7,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useActor } from "../hooks/useActor";
 // Issue 22+23: use shared fxRates to eliminate duplication with DonutChart
-import { USD_RATES } from "../utils/fxRates";
+import { USD_RATES, getLiveRates } from "../utils/fxRates";
 import { DonutChart } from "./DonutChart";
 import type { NewsArticle } from "./NewsSection";
 import {
@@ -75,9 +75,10 @@ const MOCK_ARTICLES: NewsArticle[] = [
   },
 ];
 
-// ─── Currency to USD conversion (uses shared fxRates) ──────────────────────────────────────────
+// ─── Currency to USD conversion (uses live rates when available, falls back to static) ──────────────
 function toUSD(amount: number, currency: string): number {
-  const rate = USD_RATES[currency] ?? 1;
+  const rates = getLiveRates();
+  const rate = rates[currency] ?? USD_RATES[currency] ?? 1;
   return amount * rate;
 }
 
@@ -840,7 +841,11 @@ export function HomeScreen({
           style={{ background: "#0F0F0F", border: "1px solid #1A1A1A" }}
           data-ocid="insights.panel"
         >
-          <DonutChart balances={walletBalances} isLoggedIn={isLoggedIn} />
+          <DonutChart
+            balances={walletBalances}
+            isLoggedIn={isLoggedIn}
+            liveRates={getLiveRates()}
+          />
         </div>
       </section>
 

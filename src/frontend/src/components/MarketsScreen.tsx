@@ -7,6 +7,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useActor } from "../hooks/useActor";
+import { updateLiveRates } from "../utils/fxRates";
 import {
   ExpandedChartModal,
   Sparkline,
@@ -760,6 +761,10 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
       );
       const data = await Promise.race([dataPromise, timeoutPromise]);
       setMarketData(data);
+      // Push live forex rates to the shared fxRates store so HomeScreen / DonutChart use real rates
+      if (data.forex && data.forex.length > 0) {
+        updateLiveRates(data.forex);
+      }
       // Fetch historical data once after first successful market data load
       if (!historicalLoaded.current) {
         fetchHistoricalData();

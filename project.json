@@ -1,0 +1,25 @@
+{
+  "overview": "Stancard is a premium black-and-gold financial super-app for Stancard Space Ltd. It features wallet management, live market data, smart alerts, peer-to-peer payments, logistics via Stancard Move, and Internet Identity authentication — all as an installable PWA.",
+  "features": [
+    "Profile picture upload with object-storage",
+    "Inline tap-to-edit display name",
+    "Live market data with sparklines",
+    "Peer-to-peer payments",
+    "NGN virtual accounts via Flutterwave",
+    "Stancard Move logistics with map and tracking",
+    "Smart price alerts",
+    "YouTube financial feed",
+    "PWA installable app"
+  ],
+  "category": "finance",
+  "tags": [
+    "finance",
+    "wallet",
+    "payments",
+    "logistics",
+    "markets",
+    "pwa",
+    "nigeria"
+  ],
+  "last_updated": "2026-04-08T02:46:30.571Z"
+}

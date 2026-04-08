@@ -1,6 +1,6 @@
-import { Clock, Globe, Newspaper, X } from "lucide-react";
+import { Clock, Globe, Newspaper, RefreshCw, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { forwardRef, useState } from "react";
+import { forwardRef, useEffect, useState } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,6 +18,12 @@ type NewsCategory = "Global" | "Africa" | "Asia" | "Business" | "Crypto";
 interface NewsSectionProps {
   articles: NewsArticle[];
   isLoading: boolean;
+  /** Timestamp of the last successful news fetch — used to show "Updated X ago" */
+  lastUpdatedAt?: Date | null;
+  /** Whether a refresh is currently in progress */
+  isRefreshing?: boolean;
+  /** Called when the user taps the Refresh button */
+  onRefresh?: () => void;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -473,14 +479,32 @@ function NewsCard({
 
 // ─── Main NewsSection ─────────────────────────────────────────────────────────
 
+// "Last updated X ago" label helper (local to this module)
+function updatedAgoLabel(date: Date): string {
+  const diffMs = Date.now() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return "just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  return `${diffHr}h ago`;
+}
+
 export const NewsSection = forwardRef<HTMLElement, NewsSectionProps>(
-  ({ articles, isLoading }, ref) => {
+  ({ articles, isLoading, lastUpdatedAt, isRefreshing, onRefresh }, ref) => {
     const [activeCategory, setActiveCategory] =
       useState<NewsCategory>("Global");
     const [selectedArticle, setSelectedArticle] = useState<NewsArticle | null>(
       null,
     );
     const [selectedCategory, setSelectedCategory] = useState<string>("Global");
+    // Fix 2: tick every minute so "X minutes ago" label stays live
+    const [, forceRender] = useState(0);
+    useEffect(() => {
+      if (!lastUpdatedAt) return;
+      const id = setInterval(() => forceRender((n) => n + 1), 60_000);
+      return () => clearInterval(id);
+    }, [lastUpdatedAt]);
 
     const filtered = filterArticles(articles, activeCategory);
     const articleCount = filtered.length;
@@ -496,8 +520,8 @@ export const NewsSection = forwardRef<HTMLElement, NewsSectionProps>(
 
     return (
       <section ref={ref} className="mb-6" data-ocid="news.section">
-        {/* Section heading */}
-        <div className="flex items-center justify-between mb-3">
+        {/* Section heading + refresh row */}
+        <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2">
             <Globe size={16} style={{ color: "#D4AF37" }} />
             <h2
@@ -517,6 +541,32 @@ export const NewsSection = forwardRef<HTMLElement, NewsSectionProps>(
               >
                 {articleCount}
               </span>
+            )}
+          </div>
+          {/* Fix 3: Refresh button in Explore section header */}
+          <div className="flex items-center gap-2">
+            {lastUpdatedAt && (
+              <span className="text-[10px]" style={{ color: "#6C6C6C" }}>
+                Updated {updatedAgoLabel(lastUpdatedAt)}
+              </span>
+            )}
+            {onRefresh && (
+              <button
+                type="button"
+                onClick={onRefresh}
+                disabled={isRefreshing}
+                className="flex items-center gap-1 text-[10px] font-semibold transition-opacity active:opacity-60 disabled:opacity-40"
+                style={{ color: "#D4AF37" }}
+                aria-label="Refresh news"
+                data-ocid="news.explore_refresh.button"
+              >
+                <RefreshCw
+                  size={10}
+                  className={isRefreshing ? "animate-spin" : ""}
+                  style={{ color: "#D4AF37" }}
+                />
+                {isRefreshing ? "Refreshing…" : "Refresh"}
+              </button>
             )}
           </div>
         </div>

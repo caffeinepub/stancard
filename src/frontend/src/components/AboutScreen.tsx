@@ -77,8 +77,8 @@ export function AboutScreen({ onBack }: AboutScreenProps) {
           }}
         >
           <img
-            src="/assets/generated/stancard-horse-logo-transparent.dim_120x120.png"
-            alt="Stancard Horse Logo"
+            src="/assets/stancard-logo.svg"
+            alt="Stancard logo"
             style={{ width: 64, height: 64, objectFit: "contain" }}
           />
           <span

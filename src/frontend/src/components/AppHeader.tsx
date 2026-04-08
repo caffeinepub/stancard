@@ -38,8 +38,8 @@ export function AppHeader({
       {/* Logo + Wordmark */}
       <div className="flex items-center gap-2.5">
         <img
-          src="/assets/generated/stancard-horse-logo-transparent.dim_120x120.png"
-          alt="Stancard horse logo"
+          src="/assets/stancard-logo.svg"
+          alt="Stancard logo"
           className="h-8 w-8 object-contain"
           draggable={false}
         />
@@ -51,12 +51,12 @@ export function AppHeader({
         </span>
       </div>
 
-      {/* Right side: bell + avatar (desktop) or just bell (mobile) */}
+      {/* Right side: bell + avatar (all screen sizes) */}
       <div className="flex items-center gap-3">
-        {/* Notification Bell — ISSUE 1: wire onClick */}
+        {/* Notification Bell */}
         <button
           type="button"
-          className="hidden lg:flex items-center justify-center w-9 h-9 rounded-full transition-colors"
+          className="flex items-center justify-center w-9 h-9 rounded-full transition-colors"
           style={{
             border: "1px solid #D4AF37",
             background: "transparent",
@@ -69,11 +69,11 @@ export function AppHeader({
           <Bell size={16} strokeWidth={1.75} />
         </button>
 
-        {/* Avatar — desktop only */}
+        {/* Avatar — all screen sizes */}
         <button
           type="button"
           onClick={onAvatarClick}
-          className="hidden lg:flex items-center justify-center flex-shrink-0"
+          className="flex items-center justify-center flex-shrink-0"
           style={{
             width: 36,
             height: 36,

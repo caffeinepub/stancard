@@ -1,4 +1,9 @@
-import { ArrowDownRight, ArrowRight, ArrowUpRight } from "lucide-react";
+import {
+  ArrowDownRight,
+  ArrowRight,
+  ArrowUpRight,
+  RefreshCw,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useActor } from "../hooks/useActor";
 // Issue 22+23: use shared fxRates to eliminate duplication with DonutChart
@@ -117,11 +122,74 @@ function timeAgo(isoString: string): string {
   }
 }
 
+// ─── "Last updated X minutes ago" string from a Date ─────────────────────────
+function updatedAgoLabel(date: Date | null): string {
+  if (!date) return "";
+  const diffMs = Date.now() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return "just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  return `${diffHr}h ago`;
+}
+
 function formatUSD(value: number): string {
   return value.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+// ─── Inline "Last updated" + Refresh row ─────────────────────────────────────
+function NewsRefreshRow({
+  lastUpdatedAt,
+  isRefreshing,
+  onRefresh,
+  labelOverride,
+}: {
+  lastUpdatedAt: Date | null;
+  isRefreshing: boolean;
+  onRefresh: () => void;
+  labelOverride?: string;
+}) {
+  const [, forceRender] = useState(0);
+
+  // Tick every minute so the "X minutes ago" label stays live
+  useEffect(() => {
+    const id = setInterval(() => forceRender((n) => n + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  if (!lastUpdatedAt && !isRefreshing) return null;
+
+  const label = labelOverride ?? updatedAgoLabel(lastUpdatedAt);
+
+  return (
+    <div className="flex items-center justify-end gap-2 mb-2">
+      {lastUpdatedAt && (
+        <span className="text-[10px]" style={{ color: "#6C6C6C" }}>
+          Updated {label}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={onRefresh}
+        disabled={isRefreshing}
+        className="flex items-center gap-1 text-[10px] font-semibold transition-opacity active:opacity-60 disabled:opacity-40"
+        style={{ color: "#D4AF37" }}
+        aria-label="Refresh news"
+        data-ocid="news.refresh.button"
+      >
+        <RefreshCw
+          size={10}
+          className={isRefreshing ? "animate-spin" : ""}
+          style={{ color: "#D4AF37" }}
+        />
+        {isRefreshing ? "Refreshing…" : "Refresh"}
+      </button>
+    </div>
+  );
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────────────────────────────
@@ -178,12 +246,18 @@ function TopHeadlines({
   isLoading,
   onOpen,
   onExplore,
+  lastUpdatedAt,
+  isRefreshing,
+  onRefresh,
   variant = "mobile",
 }: {
   articles: NewsArticle[];
   isLoading: boolean;
   onOpen: (article: NewsArticle) => void;
   onExplore: () => void;
+  lastUpdatedAt: Date | null;
+  isRefreshing: boolean;
+  onRefresh: () => void;
   variant?: "mobile" | "sidebar";
 }) {
   const titleSize =
@@ -193,7 +267,7 @@ function TopHeadlines({
     <>
       <div
         className="flex items-center justify-between"
-        style={{ marginBottom: variant === "sidebar" ? 0 : 12 }}
+        style={{ marginBottom: variant === "sidebar" ? 4 : 8 }}
       >
         <h2
           className={`${titleSize} font-semibold`}
@@ -211,6 +285,13 @@ function TopHeadlines({
           Explore <ArrowRight size={12} />
         </button>
       </div>
+
+      {/* Last updated + refresh for headlines block */}
+      <NewsRefreshRow
+        lastUpdatedAt={lastUpdatedAt}
+        isRefreshing={isRefreshing}
+        onRefresh={onRefresh}
+      />
 
       <div
         className="rounded-xl overflow-hidden"
@@ -294,6 +375,8 @@ interface HomeScreenProps {
   displayName?: string;
   actor?: WalletActor | null;
   identity?: unknown;
+  /** Currently active tab name — used to detect tab-return for news re-fetch */
+  activeTab?: string;
 }
 
 // ─── Main HomeScreen ──────────────────────────────────────────────────────────────────────────────────────
@@ -303,6 +386,7 @@ export function HomeScreen({
   displayName = "",
   actor: walletActor = null,
   identity,
+  activeTab,
 }: HomeScreenProps) {
   const { actor, isFetching } = useActor();
   const [articles, setArticles] = useState<NewsArticle[]>([]);
@@ -315,6 +399,11 @@ export function HomeScreen({
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const articlesRef = useRef<NewsArticle[]>([]);
   articlesRef.current = articles;
+
+  // ─── Fix 2: last successful news fetch timestamp ──────────────────────────
+  const [lastNewsUpdatedAt, setLastNewsUpdatedAt] = useState<Date | null>(null);
+  // Ref version for use inside callbacks without stale closure
+  const lastNewsFetchRef = useRef<number>(0);
 
   // ─── Wallet balance state ──────────────────────────────────────────────────────────────────────
   const [walletBalances, setWalletBalances] = useState<
@@ -402,6 +491,10 @@ export function HomeScreen({
       } else if (articlesRef.current.length === 0) {
         setArticles(MOCK_ARTICLES);
       }
+      // Fix 2: record timestamp of successful fetch
+      const now = new Date();
+      setLastNewsUpdatedAt(now);
+      lastNewsFetchRef.current = now.getTime();
     } catch {
       if (articlesRef.current.length === 0) {
         setArticles(MOCK_ARTICLES);
@@ -431,6 +524,25 @@ export function HomeScreen({
     };
   }, [actor, isFetching, fetchNews]);
 
+  // Fix 1: re-fetch when returning to the Home tab if >60s since last fetch
+  const prevActiveTabRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const isHomeTab =
+      activeTab === "home" || activeTab === "Home" || activeTab === undefined;
+    const wasOtherTab =
+      prevActiveTabRef.current !== undefined &&
+      prevActiveTabRef.current !== activeTab;
+    prevActiveTabRef.current = activeTab;
+
+    if (!isHomeTab || !wasOtherTab) return;
+    if (!actor || isFetching) return;
+
+    const elapsed = Date.now() - lastNewsFetchRef.current;
+    if (elapsed >= 60_000) {
+      fetchNews();
+    }
+  }, [activeTab, actor, isFetching, fetchNews]);
+
   const topHeadlines = articles.slice(0, 3);
 
   function openArticle(article: NewsArticle) {
@@ -441,6 +553,13 @@ export function HomeScreen({
   function closeArticle() {
     setSelectedArticle(null);
   }
+
+  // ─── Fix 3: manual refresh handler (respects isFetchingNewsRef lock) ────
+  function handleManualRefresh() {
+    fetchNews();
+  }
+
+  const isRefreshingNews = isFetchingNewsRef.current && isNewsLoading === false;
 
   // ─── Welcome message logic ────────────────────────────────────────────────────────────────────────────────
   function renderWelcomeHeading() {
@@ -730,6 +849,9 @@ export function HomeScreen({
         ref={exploreRef}
         articles={articles}
         isLoading={isNewsLoading}
+        lastUpdatedAt={lastNewsUpdatedAt}
+        isRefreshing={isRefreshingNews}
+        onRefresh={handleManualRefresh}
       />
 
       <div style={{ height: "16px" }} />
@@ -755,6 +877,9 @@ export function HomeScreen({
             onExplore={() =>
               exploreRef.current?.scrollIntoView({ behavior: "smooth" })
             }
+            lastUpdatedAt={lastNewsUpdatedAt}
+            isRefreshing={isRefreshingNews}
+            onRefresh={handleManualRefresh}
             variant="sidebar"
           />
         </div>
@@ -779,6 +904,9 @@ export function HomeScreen({
             onExplore={() =>
               exploreRef.current?.scrollIntoView({ behavior: "smooth" })
             }
+            lastUpdatedAt={lastNewsUpdatedAt}
+            isRefreshing={isRefreshingNews}
+            onRefresh={handleManualRefresh}
             variant="mobile"
           />
         </section>

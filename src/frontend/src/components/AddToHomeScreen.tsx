@@ -70,7 +70,7 @@ export function AddToHomeScreen({
         }}
       >
         <img
-          src="/assets/generated/stancard-horse-logo-transparent.dim_120x120.png"
+          src="/assets/stancard-logo.svg"
           alt="Stancard"
           style={{ width: 32, height: 32, objectFit: "contain", flexShrink: 0 }}
         />

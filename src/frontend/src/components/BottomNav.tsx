@@ -1,4 +1,4 @@
-import { Bell, CreditCard, Home, TrendingUp, Truck, User } from "lucide-react";
+import { Bell, CreditCard, Home, TrendingUp, Truck } from "lucide-react";
 
 export type TabId = "home" | "markets" | "pay" | "alerts" | "profile" | "move";
 
@@ -19,7 +19,6 @@ const tabs: NavTab[] = [
   { id: "pay", label: "Pay", icon: CreditCard, isPay: true },
   { id: "alerts", label: "Alerts", icon: Bell },
   { id: "move", label: "Move", icon: Truck },
-  { id: "profile", label: "Profile", icon: User },
 ];
 
 interface BottomNavProps {

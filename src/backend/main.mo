@@ -8,9 +8,9 @@ import Principal "mo:core/Principal";
 import Map "mo:core/Map";
 import Debug "mo:core/Debug";
 import IC "ic:aaaaa-aa";
-import Migration "migration";
 
-(with migration = Migration.run)
+
+
 persistent actor {
 
   // ─── Types ──────────────────────────────────────────────────

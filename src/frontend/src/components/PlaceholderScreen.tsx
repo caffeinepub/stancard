@@ -34,7 +34,7 @@ export function PlaceholderScreen({ tab }: PlaceholderScreenProps) {
       <div className="flex flex-col items-center gap-5 text-center">
         {/* Horse logo */}
         <img
-          src="/assets/generated/stancard-horse-logo-transparent.dim_120x120.png"
+          src="/assets/stancard-logo.svg"
           alt="Stancard"
           className="w-16 h-16 object-contain opacity-60"
           draggable={false}

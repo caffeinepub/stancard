@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 240" fill="none">
+  <!-- Outer glow ring -->
+  <circle cx="100" cy="100" r="97" fill="none" stroke="#D4AF37" stroke-width="1" opacity="0.3"/>
+  <!-- Black circle background -->
+  <circle cx="100" cy="100" r="95" fill="#0A0A0A"/>
+  <!-- Gold border -->
+  <circle cx="100" cy="100" r="95" fill="none" stroke="#D4AF37" stroke-width="2.5"/>
+
+  <!-- Gold wedge/motion accent shape behind figure -->
+  <path d="M100 100 L145 55 L165 80 Z" fill="#D4AF37" opacity="0.85"/>
+  <path d="M100 100 L60 148 L40 125 Z" fill="#D4AF37" opacity="0.5"/>
+
+  <!-- Dynamic human figure in motion (running/leaping pose) in gold -->
+  <!-- Head -->
+  <circle cx="118" cy="58" r="9" fill="#D4AF37"/>
+  <!-- Body/torso -->
+  <path d="M115 67 L110 90 L105 110" stroke="#D4AF37" stroke-width="5" stroke-linecap="round" fill="none"/>
+  <!-- Right arm (forward extended) -->
+  <path d="M112 75 L140 65 L150 58" stroke="#D4AF37" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+  <!-- Left arm (backward) -->
+  <path d="M110 78 L82 88 L72 95" stroke="#D4AF37" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+  <!-- Right leg (forward stride) -->
+  <path d="M108 108 L118 130 L130 145" stroke="#D4AF37" stroke-width="5" stroke-linecap="round" fill="none"/>
+  <!-- Left leg (backward) -->
+  <path d="M105 110 L88 128 L75 138" stroke="#D4AF37" stroke-width="5" stroke-linecap="round" fill="none"/>
+
+  <!-- "stancard" text below circle -->
+  <text x="100" y="228" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="600" letter-spacing="3" fill="#D4AF37" text-anchor="middle" dominant-baseline="middle">stancard</text>
+</svg>

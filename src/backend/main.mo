@@ -6,8 +6,12 @@ import Char "mo:core/Char";
 import Nat32 "mo:core/Nat32";
 import Principal "mo:core/Principal";
 import Map "mo:core/Map";
+import Set "mo:core/Set";
 import Debug "mo:core/Debug";
 import IC "ic:aaaaa-aa";
+import AdminTypes "types/admin";
+import AdminLib "lib/admin";
+import AdminMixin "mixins/admin-api";
 
 
 
@@ -1861,5 +1865,18 @@ persistent actor {
     if (msg.caller.isAnonymous()) { return null };
     senderVerifications.get(msg.caller)
   };
+
+  // ─── Admin State ─────────────────────────────────────────────────────────
+
+  // Admin whitelist — seeded with the Stancard founder/admin principal
+  let adminWhitelist : Set.Set<Principal> = Set.empty<Principal>();
+  adminWhitelist.add(Principal.fromText("rmmgc-fyz2d-prb4x-22bqa-wy72b-7qggc-ct55q-lwuky-dp4qh-wfvxo-lae"));
+
+  // Extended verification maps (with approval status) for admin review
+  let riderVerificationsWithStatus : Map.Map<Principal, AdminTypes.RiderVerificationWithStatus> = Map.empty<Principal, AdminTypes.RiderVerificationWithStatus>();
+  let senderVerificationsWithStatus : Map.Map<Principal, AdminTypes.SenderVerificationWithStatus> = Map.empty<Principal, AdminTypes.SenderVerificationWithStatus>();
+
+  // Wire admin mixin
+  include AdminMixin(adminWhitelist, riderVerificationsWithStatus, senderVerificationsWithStatus);
 
 }

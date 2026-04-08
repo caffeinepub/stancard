@@ -7,11 +7,73 @@ export interface None {
     __kind__: "None";
 }
 export type Option<T> = Some<T> | None;
-export interface CryptoQuote {
-    name: string;
-    changesPercentage: number;
-    price: number;
+export type VirtualAccountResult = {
+    __kind__: "ok";
+    ok: VirtualAccount;
+} | {
+    __kind__: "err";
+    err: string;
+};
+export interface WalletTransaction {
+    id: string;
+    status: string;
+    date: string;
+    desc: string;
+    currency: string;
+    txType: string;
+    amount: number;
+}
+export interface DeliveryRequest {
+    status: string;
+    requestId: string;
+    riderPrincipal: Principal;
+    createdAt: bigint;
+    senderPrincipal: Principal;
+    routeId: string;
+    packageId: string;
+}
+export type SendMoneyResult = {
+    __kind__: "ok";
+    ok: {
+        txId: string;
+        reference: string;
+        currency: string;
+        timestamp: string;
+        amount: number;
+        recipientId: string;
+    };
+} | {
+    __kind__: "err";
+    err: string;
+};
+export interface ShipmentTracking {
+    trackingCode: string;
+    requestId: string;
+    entries: Array<TrackingEntry>;
+    currentStatus: string;
+    packageId: string;
+}
+export interface MarketData {
+    forex: Array<ForexRate>;
+    stocks: Array<StockQuote>;
+    lastUpdated: bigint;
+    crypto: Array<CryptoQuote>;
+    success: boolean;
+}
+export interface ForexRate {
+    rate: number;
     symbol: string;
+}
+export interface AcceptedDeliveryWithTracking {
+    status: string;
+    trackingCode: string;
+    requestId: string;
+    riderPrincipal: Principal;
+    createdAt: bigint;
+    senderPrincipal: Principal;
+    routeId: string;
+    trackingEntries: Array<TrackingEntry>;
+    packageId: string;
 }
 export interface Alert {
     id: string;
@@ -23,13 +85,25 @@ export interface Alert {
     symbol: string;
     condition: string;
 }
-export type VirtualAccountResult = {
+export type AdminResult = {
     __kind__: "ok";
-    ok: VirtualAccount;
+    ok: string;
 } | {
     __kind__: "err";
     err: string;
 };
+export interface YouTubeVideo {
+    title: string;
+    channelTitle: string;
+    thumbnail: string;
+    videoId: string;
+}
+export interface CryptoQuote {
+    name: string;
+    changesPercentage: number;
+    price: number;
+    symbol: string;
+}
 export interface NewsData {
     articles: Array<NewsArticle>;
     lastUpdated: bigint;
@@ -58,15 +132,6 @@ export interface RiderRoute {
     destinationCountry: string;
     cargoSpace: string;
 }
-export interface WalletTransaction {
-    id: string;
-    status: string;
-    date: string;
-    desc: string;
-    currency: string;
-    txType: string;
-    amount: number;
-}
 export interface Package {
     createdAt: bigint;
     size: string;
@@ -85,63 +150,45 @@ export type MoveResult = {
     __kind__: "err";
     err: string;
 };
-export type SendMoneyResult = {
-    __kind__: "ok";
-    ok: {
-        txId: string;
-        reference: string;
-        currency: string;
-        timestamp: string;
-        amount: number;
-        recipientId: string;
-    };
-} | {
-    __kind__: "err";
-    err: string;
-};
 export interface StockQuote {
     name: string;
     changesPercentage: number;
     price: number;
     symbol: string;
 }
-export interface ShipmentTracking {
-    trackingCode: string;
-    requestId: string;
-    entries: Array<TrackingEntry>;
-    currentStatus: string;
-    packageId: string;
-}
-export interface MarketData {
-    forex: Array<ForexRate>;
-    stocks: Array<StockQuote>;
-    lastUpdated: bigint;
-    crypto: Array<CryptoQuote>;
-    success: boolean;
-}
-export interface ForexRate {
-    rate: number;
-    symbol: string;
-}
-export interface DeliveryRequest {
-    status: string;
-    requestId: string;
+export interface RiderVerificationWithStatus {
+    status: VerificationStatus;
     riderPrincipal: Principal;
-    createdAt: bigint;
-    senderPrincipal: Principal;
-    routeId: string;
-    packageId: string;
+    vehicleRegDocUrl?: string;
+    licenseDocUrl?: string;
+    nationalIdDocUrl?: string;
+    licenseType: string;
+    licenseNumber: string;
+    vehicleRegistrationNumber: string;
+    verifiedAt: bigint;
+    nationalIdNumber: string;
 }
-export interface AcceptedDeliveryWithTracking {
-    status: string;
-    trackingCode: string;
-    requestId: string;
-    riderPrincipal: Principal;
-    createdAt: bigint;
+export type VerificationStatus = {
+    __kind__: "Approved";
+    Approved: {
+        notes: string;
+    };
+} | {
+    __kind__: "Rejected";
+    Rejected: {
+        reason: string;
+    };
+} | {
+    __kind__: "Pending";
+    Pending: null;
+};
+export interface SenderVerificationWithStatus {
+    status: VerificationStatus;
+    nationalIdDocUrl?: string;
     senderPrincipal: Principal;
-    routeId: string;
-    trackingEntries: Array<TrackingEntry>;
-    packageId: string;
+    phoneNumber: string;
+    verifiedAt: bigint;
+    nationalIdNumber: string;
 }
 export interface VirtualAccount {
     expiresAt: string;
@@ -176,12 +223,6 @@ export interface NewsArticle {
     publishedAt: string;
     description: string;
 }
-export interface YouTubeVideo {
-    title: string;
-    channelTitle: string;
-    thumbnail: string;
-    videoId: string;
-}
 export interface UserProfile {
     hideBalance: boolean;
     hideTransactions: boolean;
@@ -201,16 +242,22 @@ export interface RiderVerification {
     nationalIdNumber: string;
 }
 export interface backendInterface {
+    addAdmin(newAdmin: Principal): Promise<AdminResult>;
     addAlert(assetType: string, symbol: string, condition: string, targetPrice: number): Promise<Alert>;
     addWalletTransaction(txType: string, currency: string, amount: number, date: string, desc: string, status: string): Promise<WalletTransaction>;
+    approveRiderVerification(riderPrincipal: Principal, notes: string): Promise<AdminResult>;
+    approveSenderVerification(senderPrincipal: Principal, notes: string): Promise<AdminResult>;
     clearAlertTriggered(id: string): Promise<boolean>;
     createVirtualAccount(displayName: string): Promise<VirtualAccountResult>;
     deleteAlert(id: string): Promise<boolean>;
     deleteRoute(routeId: string): Promise<MoveResult>;
     getAcceptedDeliveries(): Promise<Array<DeliveryRequest>>;
     getAcceptedDeliveriesWithTracking(): Promise<Array<AcceptedDeliveryWithTracking>>;
+    getAdminList(): Promise<Array<Principal>>;
     getAlerts(): Promise<Array<Alert>>;
+    getAllRiderVerifications(): Promise<Array<RiderVerificationWithStatus>>;
     getAllRoutes(): Promise<Array<RiderRoute>>;
+    getAllSenderVerifications(): Promise<Array<SenderVerificationWithStatus>>;
     getHistoricalPrices(symbol: string): Promise<Array<number>>;
     getIncomingRequests(): Promise<Array<RequestWithPackage>>;
     getMarketData(): Promise<MarketData>;
@@ -231,11 +278,15 @@ export interface backendInterface {
     getWalletTransactions(): Promise<Array<WalletTransaction>>;
     getYouTubeVideos(): Promise<Array<YouTubeVideo>>;
     getYouTubeVideosByQuery(searchQuery: string): Promise<Array<YouTubeVideo>>;
+    isAdminCaller(): Promise<boolean>;
     markAlertTriggered(id: string): Promise<boolean>;
     postPackage(pickupLocation: string, destinationCity: string, destinationCountry: string, size: string, weightKg: number, description: string): Promise<MoveResult>;
     recordMovePayment(packageId: string, routeId: string, riderPrincipalText: string, amount: number, currency: string, _reference: string, method: string, dateStr: string): Promise<MoveResult>;
     refreshVirtualAccount(displayName: string): Promise<VirtualAccountResult>;
     registerRoute(vehicleType: string, departureCity: string, departureCountry: string, destinationCity: string, destinationCountry: string, travelDate: string, cargoSpace: string): Promise<MoveResult>;
+    rejectRiderVerification(riderPrincipal: Principal, reason: string): Promise<AdminResult>;
+    rejectSenderVerification(senderPrincipal: Principal, reason: string): Promise<AdminResult>;
+    removeAdmin(adminToRemove: Principal): Promise<AdminResult>;
     respondToRequest(requestId: string, accept: boolean): Promise<MoveResult>;
     saveUserProfile(displayName: string, preferredCurrency: string, language: string, hideBalance: boolean, hideTransactions: boolean): Promise<UserProfile>;
     sendDeliveryRequest(packageId: string, routeId: string, riderPrincipalText: string): Promise<MoveResult>;

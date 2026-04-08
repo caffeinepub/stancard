@@ -1,6 +1,5 @@
 import Principal "mo:core/Principal";
 import Map "mo:core/Map";
-import List "mo:core/List";
 import Set "mo:core/Set";
 import Time "mo:core/Time";
 import AdminTypes "../types/admin";
@@ -13,7 +12,7 @@ module {
     adminWhitelist : Set.Set<Principal>,
     caller : Principal
   ) : Bool {
-    Runtime.trap("not implemented");
+    adminWhitelist.contains(caller)
   };
 
   public func addAdmin(
@@ -21,7 +20,11 @@ module {
     caller : Principal,
     newAdmin : Principal
   ) : AdminTypes.AdminResult {
-    Runtime.trap("not implemented");
+    if (not isAdmin(adminWhitelist, caller)) {
+      return #err("Unauthorized: admin access required.");
+    };
+    adminWhitelist.add(newAdmin);
+    #ok("Admin added.")
   };
 
   public func removeAdmin(
@@ -29,14 +32,24 @@ module {
     caller : Principal,
     adminToRemove : Principal
   ) : AdminTypes.AdminResult {
-    Runtime.trap("not implemented");
+    if (not isAdmin(adminWhitelist, caller)) {
+      return #err("Unauthorized: admin access required.");
+    };
+    if (Principal.equal(caller, adminToRemove)) {
+      return #err("You cannot remove yourself from the admin list.");
+    };
+    adminWhitelist.remove(adminToRemove);
+    #ok("Admin removed.")
   };
 
   public func getAdminList(
     adminWhitelist : Set.Set<Principal>,
     caller : Principal
   ) : [Principal] {
-    Runtime.trap("not implemented");
+    if (not isAdmin(adminWhitelist, caller)) {
+      return [];
+    };
+    adminWhitelist.toArray()
   };
 
   // ─── Rider Verification Admin Operations ─────────────────────────────────
@@ -48,7 +61,19 @@ module {
     riderPrincipal : Principal,
     notes : Text
   ) : AdminTypes.AdminResult {
-    Runtime.trap("not implemented");
+    if (not isAdmin(adminWhitelist, caller)) {
+      return #err("Unauthorized: admin access required.");
+    };
+    switch (riderVerificationsWithStatus.get(riderPrincipal)) {
+      case null { #err("Rider verification record not found.") };
+      case (?record) {
+        riderVerificationsWithStatus.add(
+          riderPrincipal,
+          { record with status = #Approved { notes } }
+        );
+        #ok("Rider verification approved.")
+      };
+    }
   };
 
   public func rejectRiderVerification(
@@ -58,7 +83,19 @@ module {
     riderPrincipal : Principal,
     reason : Text
   ) : AdminTypes.AdminResult {
-    Runtime.trap("not implemented");
+    if (not isAdmin(adminWhitelist, caller)) {
+      return #err("Unauthorized: admin access required.");
+    };
+    switch (riderVerificationsWithStatus.get(riderPrincipal)) {
+      case null { #err("Rider verification record not found.") };
+      case (?record) {
+        riderVerificationsWithStatus.add(
+          riderPrincipal,
+          { record with status = #Rejected { reason } }
+        );
+        #ok("Rider verification rejected.")
+      };
+    }
   };
 
   public func getAllRiderVerifications(
@@ -66,7 +103,14 @@ module {
     adminWhitelist : Set.Set<Principal>,
     caller : Principal
   ) : [AdminTypes.RiderVerificationWithStatus] {
-    Runtime.trap("not implemented");
+    if (not isAdmin(adminWhitelist, caller)) {
+      return [];
+    };
+    var out : [AdminTypes.RiderVerificationWithStatus] = [];
+    for ((_, record) in riderVerificationsWithStatus.entries()) {
+      out := out.concat([record]);
+    };
+    out
   };
 
   // ─── Sender Verification Admin Operations ────────────────────────────────
@@ -78,7 +122,19 @@ module {
     senderPrincipal : Principal,
     notes : Text
   ) : AdminTypes.AdminResult {
-    Runtime.trap("not implemented");
+    if (not isAdmin(adminWhitelist, caller)) {
+      return #err("Unauthorized: admin access required.");
+    };
+    switch (senderVerificationsWithStatus.get(senderPrincipal)) {
+      case null { #err("Sender verification record not found.") };
+      case (?record) {
+        senderVerificationsWithStatus.add(
+          senderPrincipal,
+          { record with status = #Approved { notes } }
+        );
+        #ok("Sender verification approved.")
+      };
+    }
   };
 
   public func rejectSenderVerification(
@@ -88,7 +144,19 @@ module {
     senderPrincipal : Principal,
     reason : Text
   ) : AdminTypes.AdminResult {
-    Runtime.trap("not implemented");
+    if (not isAdmin(adminWhitelist, caller)) {
+      return #err("Unauthorized: admin access required.");
+    };
+    switch (senderVerificationsWithStatus.get(senderPrincipal)) {
+      case null { #err("Sender verification record not found.") };
+      case (?record) {
+        senderVerificationsWithStatus.add(
+          senderPrincipal,
+          { record with status = #Rejected { reason } }
+        );
+        #ok("Sender verification rejected.")
+      };
+    }
   };
 
   public func getAllSenderVerifications(
@@ -96,7 +164,14 @@ module {
     adminWhitelist : Set.Set<Principal>,
     caller : Principal
   ) : [AdminTypes.SenderVerificationWithStatus] {
-    Runtime.trap("not implemented");
+    if (not isAdmin(adminWhitelist, caller)) {
+      return [];
+    };
+    var out : [AdminTypes.SenderVerificationWithStatus] = [];
+    for ((_, record) in senderVerificationsWithStatus.entries()) {
+      out := out.concat([record]);
+    };
+    out
   };
 
 }

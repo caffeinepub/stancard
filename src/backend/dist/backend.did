@@ -33,6 +33,12 @@ type VirtualAccount =
    expiresAt: text;
    reference: text;
  };
+type VerificationStatus = 
+ variant {
+   Approved: record {notes: text;};
+   Pending;
+   Rejected: record {reason: text;};
+ };
 type UserProfile = 
  record {
    displayName: text;
@@ -61,6 +67,15 @@ type ShipmentTracking =
    requestId: text;
    trackingCode: text;
  };
+type SenderVerificationWithStatus = 
+ record {
+   nationalIdDocUrl: opt text;
+   nationalIdNumber: text;
+   phoneNumber: text;
+   senderPrincipal: principal;
+   status: VerificationStatus;
+   verifiedAt: int;
+ };
 type SenderVerification = 
  record {
    nationalIdDocUrl: opt text;
@@ -81,6 +96,19 @@ type SendMoneyResult =
       timestamp: text;
       txId: text;
     };
+ };
+type RiderVerificationWithStatus = 
+ record {
+   licenseDocUrl: opt text;
+   licenseNumber: text;
+   licenseType: text;
+   nationalIdDocUrl: opt text;
+   nationalIdNumber: text;
+   riderPrincipal: principal;
+   status: VerificationStatus;
+   vehicleRegDocUrl: opt text;
+   vehicleRegistrationNumber: text;
+   verifiedAt: int;
  };
 type RiderVerification = 
  record {
@@ -195,6 +223,11 @@ type Alert =
    symbol: text;
    targetPrice: float64;
  };
+type AdminResult = 
+ variant {
+   err: text;
+   ok: text;
+ };
 type AcceptedDeliveryWithTracking = 
  record {
    createdAt: int;
@@ -208,10 +241,15 @@ type AcceptedDeliveryWithTracking =
    trackingEntries: vec TrackingEntry;
  };
 service : {
+  addAdmin: (newAdmin: principal) -> (AdminResult);
   addAlert: (assetType: text, symbol: text, condition: text, targetPrice:
    float64) -> (Alert);
   addWalletTransaction: (txType: text, currency: text, amount: float64, date:
    text, desc: text, status: text) -> (WalletTransaction);
+  approveRiderVerification: (riderPrincipal: principal, notes: text) ->
+   (AdminResult);
+  approveSenderVerification: (senderPrincipal: principal, notes: text) ->
+   (AdminResult);
   clearAlertTriggered: (id: text) -> (bool);
   createVirtualAccount: (displayName: text) -> (VirtualAccountResult);
   deleteAlert: (id: text) -> (bool);
@@ -219,8 +257,11 @@ service : {
   getAcceptedDeliveries: () -> (vec DeliveryRequest) query;
   getAcceptedDeliveriesWithTracking: () ->
    (vec AcceptedDeliveryWithTracking) query;
+  getAdminList: () -> (vec principal) query;
   getAlerts: () -> (vec Alert);
+  getAllRiderVerifications: () -> (vec RiderVerificationWithStatus) query;
   getAllRoutes: () -> (vec RiderRoute) query;
+  getAllSenderVerifications: () -> (vec SenderVerificationWithStatus) query;
   getHistoricalPrices: (symbol: text) -> (vec float64);
   getIncomingRequests: () -> (vec RequestWithPackage) query;
   getMarketData: () -> (MarketData);
@@ -242,6 +283,7 @@ service : {
   getWalletTransactions: () -> (vec WalletTransaction) query;
   getYouTubeVideos: () -> (vec YouTubeVideo);
   getYouTubeVideosByQuery: (searchQuery: text) -> (vec YouTubeVideo);
+  isAdminCaller: () -> (bool) query;
   markAlertTriggered: (id: text) -> (bool);
   postPackage: (pickupLocation: text, destinationCity: text,
    destinationCountry: text, size: text, weightKg: float64, description:
@@ -253,6 +295,11 @@ service : {
   registerRoute: (vehicleType: text, departureCity: text, departureCountry:
    text, destinationCity: text, destinationCountry: text, travelDate: 
    text, cargoSpace: text) -> (MoveResult);
+  rejectRiderVerification: (riderPrincipal: principal, reason: text) ->
+   (AdminResult);
+  rejectSenderVerification: (senderPrincipal: principal, reason: text) ->
+   (AdminResult);
+  removeAdmin: (adminToRemove: principal) -> (AdminResult);
   respondToRequest: (requestId: text, accept: bool) -> (MoveResult);
   saveUserProfile: (displayName: text, preferredCurrency: text, language:
    text, hideBalance: bool, hideTransactions: bool) -> (UserProfile);

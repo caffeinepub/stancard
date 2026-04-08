@@ -10,6 +10,7 @@ type Alert__365804026 =
     symbol : Text;
     targetPrice : Float
   };
+type Data__159895909<T> = {var count : Nat__490723111; elements : [var ?T]};
 type Data__791452850<K, V> =
   {var count : Nat__490723111; kvs : [var ?(K, V)]};
 type DeliveryRequest__428248108 =
@@ -23,13 +24,18 @@ type DeliveryRequest__428248108 =
     status : Text
   };
 type HistoricalCache__265516107 = {fetchedAt : Int; prices : [Float]};
+type Internal__667636161<T> =
+  {children : [var ?Node__92254746<T>]; data : Data__159895909<T>};
 type Internal__8484328<K, V> =
   {children : [var ?Node__46230540<K, V>]; data : Data__791452850<K, V>};
+type Leaf__520550824<T> = {data : Data__159895909<T>};
 type Leaf__809889148<K, V> = {data : Data__791452850<K, V>};
 type Nat__490723111 = Nat__920180692;
 type Nat__920180692 = Nat;
 type Node__46230540<K, V> =
   {#internal : Internal__8484328<K, V>; #leaf : Leaf__809889148<K, V>};
+type Node__92254746<T> =
+  {#internal : Internal__667636161<T>; #leaf : Leaf__520550824<T>};
 type Package__226567178 =
   {
     createdAt : Int;
@@ -55,6 +61,19 @@ type RiderRoute__942718174 =
     travelDate : Text;
     vehicleType : Text
   };
+type RiderVerificationWithStatus__647943789 =
+  {
+    licenseDocUrl : ?Text;
+    licenseNumber : Text;
+    licenseType : Text;
+    nationalIdDocUrl : ?Text;
+    nationalIdNumber : Text;
+    riderPrincipal : Principal;
+    status : VerificationStatus__921174749;
+    vehicleRegDocUrl : ?Text;
+    vehicleRegistrationNumber : Text;
+    verifiedAt : Int
+  };
 type RiderVerification__882988878 =
   {
     licenseDocUrl : ?Text;
@@ -65,6 +84,15 @@ type RiderVerification__882988878 =
     riderPrincipal : Principal;
     vehicleRegDocUrl : ?Text;
     vehicleRegistrationNumber : Text;
+    verifiedAt : Int
+  };
+type SenderVerificationWithStatus__920331440 =
+  {
+    nationalIdDocUrl : ?Text;
+    nationalIdNumber : Text;
+    phoneNumber : Text;
+    senderPrincipal : Principal;
+    status : VerificationStatus__921174749;
     verifiedAt : Int
   };
 type SenderVerification__265161284 =
@@ -92,6 +120,8 @@ type UserProfile__491224006 =
     language : Text;
     preferredCurrency : Text
   };
+type VerificationStatus__921174749 =
+  {#Approved : {notes : Text}; #Pending; #Rejected : {reason : Text}};
 type VirtualAccount__500273285 =
   {
     accountName : Text;
@@ -112,6 +142,8 @@ type WalletTransaction__95917618 =
     txType : Text
   };
 actor {
+  stable adminWhitelist :
+    {var root : Node__92254746<Principal>; var size : Nat__490723111};
   stable var alertCounter : Nat;
   stable var alerts : [Alert__365804026];
   stable var deliveryRequests : [DeliveryRequest__428248108];
@@ -137,10 +169,22 @@ actor {
       var root : Node__46230540<Principal, RiderVerification__882988878>;
       var size : Nat__490723111
     };
+  stable riderVerificationsWithStatus :
+    {
+      var root :
+        Node__46230540<Principal, RiderVerificationWithStatus__647943789>;
+      var size : Nat__490723111
+    };
   stable var routeCounter : Nat;
   stable senderVerifications :
     {
       var root : Node__46230540<Principal, SenderVerification__265161284>;
+      var size : Nat__490723111
+    };
+  stable senderVerificationsWithStatus :
+    {
+      var root :
+        Node__46230540<Principal, SenderVerificationWithStatus__920331440>;
       var size : Nat__490723111
     };
   stable var shipmentTrackings : [ShipmentTracking__400532964];

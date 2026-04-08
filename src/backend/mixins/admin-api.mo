@@ -3,6 +3,7 @@ import Map "mo:core/Map";
 import Set "mo:core/Set";
 import Time "mo:core/Time";
 import AdminTypes "../types/admin";
+import AdminLib "../lib/admin";
 
 // ─── Admin API Mixin ─────────────────────────────────────────────────────────
 // Exposes all admin-only endpoints and the bootstrapped admin whitelist.
@@ -10,8 +11,6 @@ import AdminTypes "../types/admin";
 //   - adminWhitelist: Set of whitelisted admin principals
 //   - riderVerificationsWithStatus: extended rider verifications with VerificationStatus
 //   - senderVerificationsWithStatus: extended sender verifications with VerificationStatus
-//   - userProfiles / riderRoutes / packages / deliveryRequests / shipmentTrackings
-//     are passed in read-only for admin overview queries.
 
 mixin (
   adminWhitelist : Set.Set<Principal>,
@@ -23,56 +22,56 @@ mixin (
 
   /// Add a new admin principal. Only callable by an existing admin.
   public shared (msg) func addAdmin(newAdmin : Principal) : async AdminTypes.AdminResult {
-    Runtime.trap("not implemented");
+    AdminLib.addAdmin(adminWhitelist, msg.caller, newAdmin)
   };
 
   /// Remove an admin principal. Only callable by an existing admin. Cannot remove yourself.
   public shared (msg) func removeAdmin(adminToRemove : Principal) : async AdminTypes.AdminResult {
-    Runtime.trap("not implemented");
+    AdminLib.removeAdmin(adminWhitelist, msg.caller, adminToRemove)
   };
 
   /// Returns the full list of admin principals. Admin only.
   public query (msg) func getAdminList() : async [Principal] {
-    Runtime.trap("not implemented");
+    AdminLib.getAdminList(adminWhitelist, msg.caller)
   };
 
   /// Returns whether the caller is an admin.
   public query (msg) func isAdminCaller() : async Bool {
-    Runtime.trap("not implemented");
+    AdminLib.isAdmin(adminWhitelist, msg.caller)
   };
 
   // ─── Rider Verification Admin ───────────────────────────────────────────
 
   /// Approve a rider's verification submission. Admin only.
   public shared (msg) func approveRiderVerification(riderPrincipal : Principal, notes : Text) : async AdminTypes.AdminResult {
-    Runtime.trap("not implemented");
+    AdminLib.approveRiderVerification(riderVerificationsWithStatus, adminWhitelist, msg.caller, riderPrincipal, notes)
   };
 
   /// Reject a rider's verification submission. Admin only.
   public shared (msg) func rejectRiderVerification(riderPrincipal : Principal, reason : Text) : async AdminTypes.AdminResult {
-    Runtime.trap("not implemented");
+    AdminLib.rejectRiderVerification(riderVerificationsWithStatus, adminWhitelist, msg.caller, riderPrincipal, reason)
   };
 
   /// Get all rider verification submissions with their current status. Admin only.
   public query (msg) func getAllRiderVerifications() : async [AdminTypes.RiderVerificationWithStatus] {
-    Runtime.trap("not implemented");
+    AdminLib.getAllRiderVerifications(riderVerificationsWithStatus, adminWhitelist, msg.caller)
   };
 
   // ─── Sender Verification Admin ──────────────────────────────────────────
 
   /// Approve a sender's verification submission. Admin only.
   public shared (msg) func approveSenderVerification(senderPrincipal : Principal, notes : Text) : async AdminTypes.AdminResult {
-    Runtime.trap("not implemented");
+    AdminLib.approveSenderVerification(senderVerificationsWithStatus, adminWhitelist, msg.caller, senderPrincipal, notes)
   };
 
   /// Reject a sender's verification submission. Admin only.
   public shared (msg) func rejectSenderVerification(senderPrincipal : Principal, reason : Text) : async AdminTypes.AdminResult {
-    Runtime.trap("not implemented");
+    AdminLib.rejectSenderVerification(senderVerificationsWithStatus, adminWhitelist, msg.caller, senderPrincipal, reason)
   };
 
   /// Get all sender verification submissions with their current status. Admin only.
   public query (msg) func getAllSenderVerifications() : async [AdminTypes.SenderVerificationWithStatus] {
-    Runtime.trap("not implemented");
+    AdminLib.getAllSenderVerifications(senderVerificationsWithStatus, adminWhitelist, msg.caller)
   };
 
 }

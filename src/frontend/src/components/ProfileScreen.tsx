@@ -149,22 +149,39 @@ export function ProfileScreen({
     principalId = "";
   }
 
-  function truncatePrincipal(id: string): string {
-    if (id.length <= 24) return id;
-    return `${id.slice(0, 10)}...${id.slice(-10)}`;
-  }
-
   function handleCopyPrincipal() {
     if (!principalId) return;
-    navigator.clipboard
-      .writeText(principalId)
-      .then(() => {
+    const doCopy = async () => {
+      try {
+        await navigator.clipboard.writeText(principalId);
+        return true;
+      } catch {
+        // fallback
+      }
+      // execCommand fallback for browsers that block clipboard API
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = principalId;
+        textarea.style.position = "fixed";
+        textarea.style.top = "0";
+        textarea.style.left = "0";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        const success = document.execCommand("copy");
+        document.body.removeChild(textarea);
+        return success;
+      } catch {
+        return false;
+      }
+    };
+    doCopy().then((ok) => {
+      if (ok) {
         setCopiedPrincipal(true);
         setTimeout(() => setCopiedPrincipal(false), 2000);
-      })
-      .catch(() => {
-        /* ignore */
-      });
+      }
+    });
   }
 
   async function handleSaveName() {
@@ -568,7 +585,7 @@ export function ProfileScreen({
                       }}
                       title={principalId}
                     >
-                      {truncatePrincipal(principalId)}
+                      {principalId}
                     </span>
                     <button
                       type="button"

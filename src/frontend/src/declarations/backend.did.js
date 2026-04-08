@@ -8,6 +8,7 @@
 
 import { IDL } from '@icp-sdk/core/candid';
 
+export const AdminResult = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
 export const Alert = IDL.Record({
   'id' : IDL.Text,
   'createdAt' : IDL.Nat,
@@ -63,6 +64,23 @@ export const AcceptedDeliveryWithTracking = IDL.Record({
   'trackingEntries' : IDL.Vec(TrackingEntry),
   'packageId' : IDL.Text,
 });
+export const VerificationStatus = IDL.Variant({
+  'Approved' : IDL.Record({ 'notes' : IDL.Text }),
+  'Rejected' : IDL.Record({ 'reason' : IDL.Text }),
+  'Pending' : IDL.Null,
+});
+export const RiderVerificationWithStatus = IDL.Record({
+  'status' : VerificationStatus,
+  'riderPrincipal' : IDL.Principal,
+  'vehicleRegDocUrl' : IDL.Opt(IDL.Text),
+  'licenseDocUrl' : IDL.Opt(IDL.Text),
+  'nationalIdDocUrl' : IDL.Opt(IDL.Text),
+  'licenseType' : IDL.Text,
+  'licenseNumber' : IDL.Text,
+  'vehicleRegistrationNumber' : IDL.Text,
+  'verifiedAt' : IDL.Int,
+  'nationalIdNumber' : IDL.Text,
+});
 export const RiderRoute = IDL.Record({
   'vehicleType' : IDL.Text,
   'riderPrincipal' : IDL.Principal,
@@ -74,6 +92,14 @@ export const RiderRoute = IDL.Record({
   'travelDate' : IDL.Text,
   'destinationCountry' : IDL.Text,
   'cargoSpace' : IDL.Text,
+});
+export const SenderVerificationWithStatus = IDL.Record({
+  'status' : VerificationStatus,
+  'nationalIdDocUrl' : IDL.Opt(IDL.Text),
+  'senderPrincipal' : IDL.Principal,
+  'phoneNumber' : IDL.Text,
+  'verifiedAt' : IDL.Int,
+  'nationalIdNumber' : IDL.Text,
 });
 export const RequestWithPackage = IDL.Record({
   'status' : IDL.Text,
@@ -191,6 +217,7 @@ export const SendMoneyResult = IDL.Variant({
 });
 
 export const idlService = IDL.Service({
+  'addAdmin' : IDL.Func([IDL.Principal], [AdminResult], []),
   'addAlert' : IDL.Func(
       [IDL.Text, IDL.Text, IDL.Text, IDL.Float64],
       [Alert],
@@ -199,6 +226,16 @@ export const idlService = IDL.Service({
   'addWalletTransaction' : IDL.Func(
       [IDL.Text, IDL.Text, IDL.Float64, IDL.Text, IDL.Text, IDL.Text],
       [WalletTransaction],
+      [],
+    ),
+  'approveRiderVerification' : IDL.Func(
+      [IDL.Principal, IDL.Text],
+      [AdminResult],
+      [],
+    ),
+  'approveSenderVerification' : IDL.Func(
+      [IDL.Principal, IDL.Text],
+      [AdminResult],
       [],
     ),
   'clearAlertTriggered' : IDL.Func([IDL.Text], [IDL.Bool], []),
@@ -211,8 +248,19 @@ export const idlService = IDL.Service({
       [IDL.Vec(AcceptedDeliveryWithTracking)],
       ['query'],
     ),
+  'getAdminList' : IDL.Func([], [IDL.Vec(IDL.Principal)], ['query']),
   'getAlerts' : IDL.Func([], [IDL.Vec(Alert)], []),
+  'getAllRiderVerifications' : IDL.Func(
+      [],
+      [IDL.Vec(RiderVerificationWithStatus)],
+      ['query'],
+    ),
   'getAllRoutes' : IDL.Func([], [IDL.Vec(RiderRoute)], ['query']),
+  'getAllSenderVerifications' : IDL.Func(
+      [],
+      [IDL.Vec(SenderVerificationWithStatus)],
+      ['query'],
+    ),
   'getHistoricalPrices' : IDL.Func([IDL.Text], [IDL.Vec(IDL.Float64)], []),
   'getIncomingRequests' : IDL.Func(
       [],
@@ -261,6 +309,7 @@ export const idlService = IDL.Service({
     ),
   'getYouTubeVideos' : IDL.Func([], [IDL.Vec(YouTubeVideo)], []),
   'getYouTubeVideosByQuery' : IDL.Func([IDL.Text], [IDL.Vec(YouTubeVideo)], []),
+  'isAdminCaller' : IDL.Func([], [IDL.Bool], ['query']),
   'markAlertTriggered' : IDL.Func([IDL.Text], [IDL.Bool], []),
   'postPackage' : IDL.Func(
       [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Float64, IDL.Text],
@@ -287,6 +336,17 @@ export const idlService = IDL.Service({
       [MoveResult],
       [],
     ),
+  'rejectRiderVerification' : IDL.Func(
+      [IDL.Principal, IDL.Text],
+      [AdminResult],
+      [],
+    ),
+  'rejectSenderVerification' : IDL.Func(
+      [IDL.Principal, IDL.Text],
+      [AdminResult],
+      [],
+    ),
+  'removeAdmin' : IDL.Func([IDL.Principal], [AdminResult], []),
   'respondToRequest' : IDL.Func([IDL.Text, IDL.Bool], [MoveResult], []),
   'saveUserProfile' : IDL.Func(
       [IDL.Text, IDL.Text, IDL.Text, IDL.Bool, IDL.Bool],
@@ -347,6 +407,7 @@ export const idlService = IDL.Service({
 export const idlInitArgs = [];
 
 export const idlFactory = ({ IDL }) => {
+  const AdminResult = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
   const Alert = IDL.Record({
     'id' : IDL.Text,
     'createdAt' : IDL.Nat,
@@ -402,6 +463,23 @@ export const idlFactory = ({ IDL }) => {
     'trackingEntries' : IDL.Vec(TrackingEntry),
     'packageId' : IDL.Text,
   });
+  const VerificationStatus = IDL.Variant({
+    'Approved' : IDL.Record({ 'notes' : IDL.Text }),
+    'Rejected' : IDL.Record({ 'reason' : IDL.Text }),
+    'Pending' : IDL.Null,
+  });
+  const RiderVerificationWithStatus = IDL.Record({
+    'status' : VerificationStatus,
+    'riderPrincipal' : IDL.Principal,
+    'vehicleRegDocUrl' : IDL.Opt(IDL.Text),
+    'licenseDocUrl' : IDL.Opt(IDL.Text),
+    'nationalIdDocUrl' : IDL.Opt(IDL.Text),
+    'licenseType' : IDL.Text,
+    'licenseNumber' : IDL.Text,
+    'vehicleRegistrationNumber' : IDL.Text,
+    'verifiedAt' : IDL.Int,
+    'nationalIdNumber' : IDL.Text,
+  });
   const RiderRoute = IDL.Record({
     'vehicleType' : IDL.Text,
     'riderPrincipal' : IDL.Principal,
@@ -413,6 +491,14 @@ export const idlFactory = ({ IDL }) => {
     'travelDate' : IDL.Text,
     'destinationCountry' : IDL.Text,
     'cargoSpace' : IDL.Text,
+  });
+  const SenderVerificationWithStatus = IDL.Record({
+    'status' : VerificationStatus,
+    'nationalIdDocUrl' : IDL.Opt(IDL.Text),
+    'senderPrincipal' : IDL.Principal,
+    'phoneNumber' : IDL.Text,
+    'verifiedAt' : IDL.Int,
+    'nationalIdNumber' : IDL.Text,
   });
   const RequestWithPackage = IDL.Record({
     'status' : IDL.Text,
@@ -527,6 +613,7 @@ export const idlFactory = ({ IDL }) => {
   });
   
   return IDL.Service({
+    'addAdmin' : IDL.Func([IDL.Principal], [AdminResult], []),
     'addAlert' : IDL.Func(
         [IDL.Text, IDL.Text, IDL.Text, IDL.Float64],
         [Alert],
@@ -535,6 +622,16 @@ export const idlFactory = ({ IDL }) => {
     'addWalletTransaction' : IDL.Func(
         [IDL.Text, IDL.Text, IDL.Float64, IDL.Text, IDL.Text, IDL.Text],
         [WalletTransaction],
+        [],
+      ),
+    'approveRiderVerification' : IDL.Func(
+        [IDL.Principal, IDL.Text],
+        [AdminResult],
+        [],
+      ),
+    'approveSenderVerification' : IDL.Func(
+        [IDL.Principal, IDL.Text],
+        [AdminResult],
         [],
       ),
     'clearAlertTriggered' : IDL.Func([IDL.Text], [IDL.Bool], []),
@@ -551,8 +648,19 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(AcceptedDeliveryWithTracking)],
         ['query'],
       ),
+    'getAdminList' : IDL.Func([], [IDL.Vec(IDL.Principal)], ['query']),
     'getAlerts' : IDL.Func([], [IDL.Vec(Alert)], []),
+    'getAllRiderVerifications' : IDL.Func(
+        [],
+        [IDL.Vec(RiderVerificationWithStatus)],
+        ['query'],
+      ),
     'getAllRoutes' : IDL.Func([], [IDL.Vec(RiderRoute)], ['query']),
+    'getAllSenderVerifications' : IDL.Func(
+        [],
+        [IDL.Vec(SenderVerificationWithStatus)],
+        ['query'],
+      ),
     'getHistoricalPrices' : IDL.Func([IDL.Text], [IDL.Vec(IDL.Float64)], []),
     'getIncomingRequests' : IDL.Func(
         [],
@@ -605,6 +713,7 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(YouTubeVideo)],
         [],
       ),
+    'isAdminCaller' : IDL.Func([], [IDL.Bool], ['query']),
     'markAlertTriggered' : IDL.Func([IDL.Text], [IDL.Bool], []),
     'postPackage' : IDL.Func(
         [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Float64, IDL.Text],
@@ -631,6 +740,17 @@ export const idlFactory = ({ IDL }) => {
         [MoveResult],
         [],
       ),
+    'rejectRiderVerification' : IDL.Func(
+        [IDL.Principal, IDL.Text],
+        [AdminResult],
+        [],
+      ),
+    'rejectSenderVerification' : IDL.Func(
+        [IDL.Principal, IDL.Text],
+        [AdminResult],
+        [],
+      ),
+    'removeAdmin' : IDL.Func([IDL.Principal], [AdminResult], []),
     'respondToRequest' : IDL.Func([IDL.Text, IDL.Bool], [MoveResult], []),
     'saveUserProfile' : IDL.Func(
         [IDL.Text, IDL.Text, IDL.Text, IDL.Bool, IDL.Bool],

@@ -21,6 +21,8 @@ export interface AcceptedDeliveryWithTracking {
   'trackingEntries' : Array<TrackingEntry>,
   'packageId' : string,
 }
+export type AdminResult = { 'ok' : string } |
+  { 'err' : string };
 export interface Alert {
   'id' : string,
   'createdAt' : bigint,
@@ -117,6 +119,18 @@ export interface RiderVerification {
   'verifiedAt' : bigint,
   'nationalIdNumber' : string,
 }
+export interface RiderVerificationWithStatus {
+  'status' : VerificationStatus,
+  'riderPrincipal' : Principal,
+  'vehicleRegDocUrl' : [] | [string],
+  'licenseDocUrl' : [] | [string],
+  'nationalIdDocUrl' : [] | [string],
+  'licenseType' : string,
+  'licenseNumber' : string,
+  'vehicleRegistrationNumber' : string,
+  'verifiedAt' : bigint,
+  'nationalIdNumber' : string,
+}
 export type SendMoneyResult = {
     'ok' : {
       'txId' : string,
@@ -129,6 +143,14 @@ export type SendMoneyResult = {
   } |
   { 'err' : string };
 export interface SenderVerification {
+  'nationalIdDocUrl' : [] | [string],
+  'senderPrincipal' : Principal,
+  'phoneNumber' : string,
+  'verifiedAt' : bigint,
+  'nationalIdNumber' : string,
+}
+export interface SenderVerificationWithStatus {
+  'status' : VerificationStatus,
   'nationalIdDocUrl' : [] | [string],
   'senderPrincipal' : Principal,
   'phoneNumber' : string,
@@ -156,6 +178,9 @@ export interface UserProfile {
   'preferredCurrency' : string,
   'language' : string,
 }
+export type VerificationStatus = { 'Approved' : { 'notes' : string } } |
+  { 'Rejected' : { 'reason' : string } } |
+  { 'Pending' : null };
 export interface VirtualAccount {
   'expiresAt' : string,
   'reference' : string,
@@ -182,11 +207,14 @@ export interface YouTubeVideo {
   'videoId' : string,
 }
 export interface _SERVICE {
+  'addAdmin' : ActorMethod<[Principal], AdminResult>,
   'addAlert' : ActorMethod<[string, string, string, number], Alert>,
   'addWalletTransaction' : ActorMethod<
     [string, string, number, string, string, string],
     WalletTransaction
   >,
+  'approveRiderVerification' : ActorMethod<[Principal, string], AdminResult>,
+  'approveSenderVerification' : ActorMethod<[Principal, string], AdminResult>,
   'clearAlertTriggered' : ActorMethod<[string], boolean>,
   'createVirtualAccount' : ActorMethod<[string], VirtualAccountResult>,
   'deleteAlert' : ActorMethod<[string], boolean>,
@@ -196,8 +224,17 @@ export interface _SERVICE {
     [],
     Array<AcceptedDeliveryWithTracking>
   >,
+  'getAdminList' : ActorMethod<[], Array<Principal>>,
   'getAlerts' : ActorMethod<[], Array<Alert>>,
+  'getAllRiderVerifications' : ActorMethod<
+    [],
+    Array<RiderVerificationWithStatus>
+  >,
   'getAllRoutes' : ActorMethod<[], Array<RiderRoute>>,
+  'getAllSenderVerifications' : ActorMethod<
+    [],
+    Array<SenderVerificationWithStatus>
+  >,
   'getHistoricalPrices' : ActorMethod<[string], Array<number>>,
   'getIncomingRequests' : ActorMethod<[], Array<RequestWithPackage>>,
   'getMarketData' : ActorMethod<[], MarketData>,
@@ -218,6 +255,7 @@ export interface _SERVICE {
   'getWalletTransactions' : ActorMethod<[], Array<WalletTransaction>>,
   'getYouTubeVideos' : ActorMethod<[], Array<YouTubeVideo>>,
   'getYouTubeVideosByQuery' : ActorMethod<[string], Array<YouTubeVideo>>,
+  'isAdminCaller' : ActorMethod<[], boolean>,
   'markAlertTriggered' : ActorMethod<[string], boolean>,
   'postPackage' : ActorMethod<
     [string, string, string, string, number, string],
@@ -232,6 +270,9 @@ export interface _SERVICE {
     [string, string, string, string, string, string, string],
     MoveResult
   >,
+  'rejectRiderVerification' : ActorMethod<[Principal, string], AdminResult>,
+  'rejectSenderVerification' : ActorMethod<[Principal, string], AdminResult>,
+  'removeAdmin' : ActorMethod<[Principal], AdminResult>,
   'respondToRequest' : ActorMethod<[string, boolean], MoveResult>,
   'saveUserProfile' : ActorMethod<
     [string, string, string, boolean, boolean],

@@ -1299,6 +1299,8 @@ function ReceiveModal({
   const [virtualAccount, setVirtualAccount] =
     useState<VirtualAccountData | null>(null);
   const [vaExpired, setVaExpired] = useState(false);
+  const [vaRetryCount, setVaRetryCount] = useState(0);
+  const MAX_RETRIES = 3;
 
   // Sync currency when defaultCurrency changes
   useEffect(() => {
@@ -1310,6 +1312,7 @@ function ReceiveModal({
     setVaLoading(false);
     setVaError("");
     setVaExpired(false);
+    setVaRetryCount(0);
     setAmount("");
     setError("");
     onClose();
@@ -1527,6 +1530,7 @@ function ReceiveModal({
 
     // Error state
     if (vaError && !vaLoading) {
+      const isMaxRetries = vaRetryCount >= MAX_RETRIES;
       return (
         <div
           data-ocid="pay.receive.error_state"
@@ -1544,8 +1548,8 @@ function ReceiveModal({
         >
           <div
             style={{
-              width: 44,
-              height: 44,
+              width: 48,
+              height: 48,
               borderRadius: "50%",
               background: "rgba(224,82,82,0.1)",
               border: "1px solid rgba(224,82,82,0.25)",
@@ -1554,39 +1558,108 @@ function ReceiveModal({
               justifyContent: "center",
             }}
           >
-            <span style={{ fontSize: 20 }}>⚠️</span>
+            <span style={{ fontSize: 22 }}>⚠️</span>
           </div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#E05252" }}>
-            Unable to generate account number.
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#E05252" }}>
+            Unable to generate your NGN account
           </div>
-          <div style={{ fontSize: 12, color: "#7A7A7A" }}>
-            Please try again.
-          </div>
-          <button
-            type="button"
-            data-ocid="pay.receive.retry_button"
-            onClick={() => {
-              setVaError("");
-              void loadVirtualAccount();
-            }}
+          {vaError !==
+            "Unable to generate account number. Please try again." && (
+            <div
+              style={{
+                fontSize: 12,
+                color: "#9A9A9A",
+                fontStyle: "italic",
+                maxWidth: 260,
+              }}
+            >
+              {vaError}
+            </div>
+          )}
+          <div
             style={{
-              background: "transparent",
-              border: "1px solid #D4AF37",
-              borderRadius: 8,
-              padding: "8px 20px",
-              color: "#D4AF37",
               fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              transition: "background 0.2s ease",
+              color: "#9A9A9A",
+              lineHeight: 1.6,
+              maxWidth: 280,
             }}
           >
-            <RefreshCw size={14} />
-            Retry
-          </button>
+            This may be a temporary issue with our banking partner. Please try
+            again in a moment.
+          </div>
+          {isMaxRetries ? (
+            <div
+              style={{
+                background: "rgba(224,82,82,0.08)",
+                border: "1px solid rgba(224,82,82,0.2)",
+                borderRadius: 10,
+                padding: "12px 16px",
+                fontSize: 13,
+                color: "#E8E8E8",
+                lineHeight: 1.6,
+              }}
+            >
+              Maximum retries reached. Please contact support at{" "}
+              <a
+                href="mailto:stancardcreativeagency@gmail.com"
+                style={{ color: "#D4AF37", fontWeight: 700 }}
+              >
+                stancardcreativeagency@gmail.com
+              </a>
+            </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                data-ocid="pay.receive.retry_button"
+                onClick={() => {
+                  setVaError("");
+                  setVirtualAccount(null);
+                  setVaRetryCount((c) => c + 1);
+                  void loadVirtualAccount();
+                }}
+                style={{
+                  background:
+                    "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)",
+                  border: "none",
+                  borderRadius: 10,
+                  padding: "10px 24px",
+                  color: "rgba(0,0,0,0.85)",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  transition: "opacity 0.2s ease",
+                  boxShadow: "0 4px 16px rgba(212,175,55,0.3)",
+                }}
+              >
+                <RefreshCw size={15} />
+                Try Again
+              </button>
+              <div style={{ fontSize: 11, color: "#5A5A5A" }}>
+                Attempt {vaRetryCount + 1} of {MAX_RETRIES}
+              </div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "#4A4A4A",
+                  lineHeight: 1.5,
+                  maxWidth: 260,
+                }}
+              >
+                If this persists after multiple retries, please contact support
+                at{" "}
+                <a
+                  href="mailto:stancardcreativeagency@gmail.com"
+                  style={{ color: "#D4AF37" }}
+                >
+                  stancardcreativeagency@gmail.com
+                </a>
+              </div>
+            </>
+          )}
         </div>
       );
     }

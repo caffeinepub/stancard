@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const GOLD = "#D4AF37";
-const GOLD_DIM = "rgba(212,175,55,0.15)";
-const MODAL_BG = "#0F0F0F";
-const MUTED = "#6C6C6C";
-const WHITE = "#E8E8E8";
+const MODAL_BG = "#111111";
+const MUTED = "#9A9A9A";
+const WHITE = "#FFFFFF";
 const GREEN = "#22C55E";
 const RED = "#EF4444";
 
@@ -242,12 +241,8 @@ function InteractiveChart({
       >
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={GOLD_DIM} stopOpacity={1} />
-            <stop
-              offset="100%"
-              stopColor="rgba(212,175,55,0)"
-              stopOpacity={0}
-            />
+            <stop offset="0%" stopColor={GOLD} stopOpacity={0.35} />
+            <stop offset="100%" stopColor={GOLD} stopOpacity={0.05} />
           </linearGradient>
         </defs>
 
@@ -408,6 +403,21 @@ export function ExpandedChartModal({
     return `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
+  // ── Analysis text ──────────────────────────────────────────────────────────
+  let analysisText = "";
+  if (has7dChange) {
+    const absChange = Math.abs(changePercent);
+    const highFmt = formatStat(high7d);
+    const lowFmt = formatStat(low7d);
+    if (changePercent > 2) {
+      analysisText = `Strong upward momentum. Price is up ${absChange.toFixed(2)}% over 7 days, suggesting bullish sentiment.`;
+    } else if (changePercent < -2) {
+      analysisText = `Bearish pressure detected. Price is down ${absChange.toFixed(2)}% over 7 days, indicating selling activity.`;
+    } else {
+      analysisText = `Price is consolidating. The 7-day range shows ${lowFmt} to ${highFmt} with moderate volatility.`;
+    }
+  }
+
   return (
     <div
       style={{
@@ -429,6 +439,7 @@ export function ExpandedChartModal({
       <div
         style={{
           background: MODAL_BG,
+          border: "2px solid #D4AF37",
           borderRadius: "20px 20px 0 0",
           width: "100%",
           maxHeight: "85vh",
@@ -436,6 +447,7 @@ export function ExpandedChartModal({
           padding: "24px 20px 32px",
           position: "relative",
           pointerEvents: "auto",
+          boxShadow: "0 -8px 48px rgba(212,175,55,0.18)",
         }}
         className="lg:rounded-2xl lg:max-w-[520px] lg:mb-0 lg:self-center"
         aria-modal="true"
@@ -449,7 +461,7 @@ export function ExpandedChartModal({
               width: "40px",
               height: "4px",
               borderRadius: "2px",
-              background: "#2A2A2A",
+              background: "#3A3A3A",
             }}
           />
         </div>
@@ -460,163 +472,220 @@ export function ExpandedChartModal({
             display: "flex",
             alignItems: "flex-start",
             justifyContent: "space-between",
-            marginBottom: "16px",
+            marginBottom: "18px",
+            paddingBottom: "14px",
+            borderBottom: "1px solid rgba(212,175,55,0.3)",
           }}
         >
           <div>
             <p
               style={{
-                fontSize: "20px",
-                fontWeight: 700,
-                color: GOLD,
-                lineHeight: 1.2,
+                fontSize: "24px",
+                fontWeight: 800,
+                color: WHITE,
+                lineHeight: 1.1,
+                letterSpacing: "-0.01em",
               }}
             >
               {symbol}
             </p>
-            <p style={{ fontSize: "13px", color: MUTED, marginTop: "2px" }}>
+            <p
+              style={{
+                fontSize: "14px",
+                color: MUTED,
+                marginTop: "3px",
+                fontWeight: 500,
+              }}
+            >
               {name}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              width: "32px",
-              height: "32px",
-              borderRadius: "50%",
-              background: "#1A1A1A",
-              border: "1px solid #2A2A2A",
-              color: MUTED,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              fontSize: "16px",
-              flexShrink: 0,
-            }}
-            aria-label="Close chart"
-            data-ocid="markets.expanded.close_button"
-          >
-            ✕
-          </button>
-        </div>
-
-        {/* Stats row */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: has7dChange
-              ? "1fr 1fr 1fr 1fr"
-              : "1fr 1fr 1fr",
-            gap: "12px",
-            marginBottom: "20px",
-            padding: "14px",
-            background: "#0A0A0A",
-            borderRadius: "12px",
-            border: "1px solid #1A1A1A",
-          }}
-        >
-          <div>
-            <p
-              style={{
-                fontSize: "9px",
-                color: MUTED,
-                textTransform: "uppercase",
-                letterSpacing: "0.1em",
-                marginBottom: "4px",
-              }}
-            >
-              Price
-            </p>
-            <p
-              style={{
-                fontSize: "15px",
-                fontWeight: 700,
-                color: WHITE,
-                lineHeight: 1.2,
-              }}
-            >
-              {currentPrice}
-            </p>
-            {priceUnit && (
-              <p style={{ fontSize: "10px", color: MUTED }}>{priceUnit}</p>
-            )}
-          </div>
-
-          {has7dChange && (
-            <div>
-              <p
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {has7dChange && (
+              <span
                 style={{
-                  fontSize: "9px",
-                  color: MUTED,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.1em",
-                  marginBottom: "4px",
-                }}
-              >
-                7d Change
-              </p>
-              <p
-                style={{
-                  fontSize: "15px",
-                  fontWeight: 700,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  fontSize: "16px",
+                  fontWeight: 800,
                   color: isPositive ? GREEN : RED,
-                  lineHeight: 1.2,
+                  background: isPositive
+                    ? "rgba(34,197,94,0.12)"
+                    : "rgba(239,68,68,0.12)",
+                  border: `1px solid ${isPositive ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
+                  borderRadius: 10,
+                  padding: "8px 14px",
                 }}
               >
                 {isPositive ? "▲" : "▼"} {Math.abs(changePercent).toFixed(2)}%
-              </p>
-            </div>
-          )}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                width: "36px",
+                height: "36px",
+                borderRadius: "50%",
+                background: "#1E1E1E",
+                border: "1px solid #333",
+                color: WHITE,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                fontSize: "16px",
+                flexShrink: 0,
+              }}
+              aria-label="Close chart"
+              data-ocid="markets.expanded.close_button"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
 
-          <div>
+        {/* Current price — hero stat */}
+        <div style={{ marginBottom: "20px" }}>
+          <p
+            style={{
+              fontSize: "11px",
+              fontWeight: 700,
+              color: GOLD,
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+              marginBottom: "6px",
+            }}
+          >
+            Current Price
+          </p>
+          <p
+            style={{
+              fontSize: "32px",
+              fontWeight: 800,
+              color: WHITE,
+              lineHeight: 1.1,
+              letterSpacing: "-0.02em",
+            }}
+          >
+            {currentPrice}
+          </p>
+          {priceUnit && (
+            <p style={{ fontSize: "12px", color: MUTED, marginTop: "4px" }}>
+              {priceUnit}
+            </p>
+          )}
+        </div>
+
+        {/* Stats grid */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: has7dChange ? "1fr 1fr" : "1fr 1fr",
+            gap: "10px",
+            marginBottom: "20px",
+          }}
+        >
+          <div
+            style={{
+              background: "#1C1407",
+              border: "1px solid #D4AF37",
+              borderRadius: "12px",
+              padding: "16px",
+            }}
+          >
             <p
               style={{
-                fontSize: "9px",
-                color: MUTED,
+                fontSize: "12px",
+                fontWeight: 700,
+                color: GOLD,
                 textTransform: "uppercase",
-                letterSpacing: "0.1em",
-                marginBottom: "4px",
+                letterSpacing: "0.08em",
+                marginBottom: "8px",
               }}
             >
-              7d High
+              7D HIGH
             </p>
             <p
               style={{
-                fontSize: "13px",
-                fontWeight: 600,
-                color: GOLD,
-                lineHeight: 1.2,
+                fontSize: "20px",
+                fontWeight: 800,
+                color: WHITE,
+                lineHeight: 1.1,
               }}
             >
               {formatStat(high7d)}
             </p>
           </div>
 
-          <div>
+          <div
+            style={{
+              background: "#1C1407",
+              border: "1px solid #D4AF37",
+              borderRadius: "12px",
+              padding: "16px",
+            }}
+          >
             <p
               style={{
-                fontSize: "9px",
-                color: MUTED,
+                fontSize: "12px",
+                fontWeight: 700,
+                color: GOLD,
                 textTransform: "uppercase",
-                letterSpacing: "0.1em",
-                marginBottom: "4px",
+                letterSpacing: "0.08em",
+                marginBottom: "8px",
               }}
             >
-              7d Low
+              7D LOW
             </p>
             <p
               style={{
-                fontSize: "13px",
-                fontWeight: 600,
-                color: GOLD,
-                lineHeight: 1.2,
+                fontSize: "20px",
+                fontWeight: 800,
+                color: WHITE,
+                lineHeight: 1.1,
               }}
             >
               {formatStat(low7d)}
             </p>
           </div>
+
+          {has7dChange && (
+            <div
+              style={{
+                background: "#1C1407",
+                border: "1px solid #D4AF37",
+                borderRadius: "12px",
+                padding: "16px",
+                gridColumn: "1 / -1",
+              }}
+            >
+              <p
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  color: GOLD,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  marginBottom: "8px",
+                }}
+              >
+                7D CHANGE
+              </p>
+              <p
+                style={{
+                  fontSize: "22px",
+                  fontWeight: 800,
+                  color: isPositive ? GREEN : RED,
+                  lineHeight: 1.1,
+                }}
+              >
+                {isPositive ? "+" : ""}
+                {changePercent.toFixed(2)}%
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Interactive chart */}
@@ -626,9 +695,71 @@ export function ExpandedChartModal({
           priceUnit={priceUnit}
         />
 
+        {/* ANALYSIS section */}
+        {analysisText && (
+          <div style={{ marginTop: "20px" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                marginBottom: "12px",
+              }}
+            >
+              <div
+                style={{
+                  height: "1px",
+                  flex: 1,
+                  background:
+                    "linear-gradient(90deg, rgba(212,175,55,0.6) 0%, rgba(212,175,55,0.1) 100%)",
+                }}
+              />
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 800,
+                  color: GOLD,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  flexShrink: 0,
+                }}
+              >
+                ANALYSIS
+              </span>
+              <div
+                style={{
+                  height: "1px",
+                  flex: 1,
+                  background:
+                    "linear-gradient(90deg, rgba(212,175,55,0.1) 0%, rgba(212,175,55,0.6) 100%)",
+                }}
+              />
+            </div>
+            <div
+              style={{
+                background: "#1C1407",
+                border: "1px solid rgba(212,175,55,0.4)",
+                borderRadius: "12px",
+                padding: "16px",
+              }}
+            >
+              <p
+                style={{
+                  fontSize: "14px",
+                  color: "#E8E8E8",
+                  lineHeight: 1.7,
+                  fontWeight: 500,
+                }}
+              >
+                {analysisText}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* ISSUE 14: Set Alert button */}
         {onSetAlert && (
-          <div style={{ marginTop: 16, textAlign: "right" }}>
+          <div style={{ marginTop: 18, textAlign: "right" }}>
             <button
               type="button"
               onClick={() => {
@@ -636,15 +767,17 @@ export function ExpandedChartModal({
                 onClose();
               }}
               style={{
-                background: "transparent",
-                border: "1px solid #D4AF37",
-                borderRadius: 8,
-                color: "#D4AF37",
-                fontSize: 12,
-                fontWeight: 600,
-                padding: "7px 14px",
+                background:
+                  "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)",
+                border: "none",
+                borderRadius: 10,
+                color: "rgba(0,0,0,0.85)",
+                fontSize: 13,
+                fontWeight: 700,
+                padding: "10px 18px",
                 cursor: "pointer",
                 letterSpacing: "0.04em",
+                boxShadow: "0 4px 16px rgba(212,175,55,0.35)",
               }}
               data-ocid="markets.expanded.set_alert_button"
             >

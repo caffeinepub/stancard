@@ -577,7 +577,7 @@ export default function App() {
       {/* ===== DESKTOP layout (>= 1024px) ===== */}
       {/* Full-width content, offset by sidebar */}
       <div
-        className="hidden lg:flex flex-col"
+        className="hidden lg:block"
         style={{
           marginLeft: "240px",
           paddingTop: "60px",
@@ -605,13 +605,21 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Content with max-width centering */}
-        <div className="flex-1 flex flex-col">
+        {/* Scrollable content container */}
+        <div
+          style={{
+            height: "calc(100vh - 60px)",
+            overflowY: "auto",
+            position: "sticky",
+            top: "60px",
+          }}
+        >
           <div
             className="w-full mx-auto"
             style={{
               maxWidth: "1280px",
               padding: "0 40px",
+              minHeight: "100%",
             }}
           >
             {screenContent}

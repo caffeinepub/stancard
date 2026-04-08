@@ -1056,27 +1056,112 @@ persistent actor {
     await doCreateVirtualAccount(msg.caller, displayName)
   };
 
+  // Extract a substring between the first '{' and its matching '}' after a given key
+  func extractDataObject(json : Text) : ?Text {
+    let dataKey = "\"data\":";
+    let keyChars = dataKey.toArray();
+    let jsonChars = json.toArray();
+    let jLen = jsonChars.size();
+    let kLen = keyChars.size();
+    // Find "data": in the JSON
+    var keyStart : ?Nat = null;
+    var i = 0;
+    while (i + kLen <= jLen) {
+      var matched = true;
+      var j = 0;
+      while (j < kLen) {
+        if (jsonChars[i + j] != keyChars[j]) { matched := false; j := kLen };
+        j += 1;
+      };
+      if (matched) { keyStart := ?(i + kLen); i := jLen };
+      i += 1;
+    };
+    let objStart = switch (keyStart) {
+      case null { return null };
+      case (?p) p;
+    };
+    // Skip whitespace to find '{'
+    var pos = objStart;
+    while (pos < jLen and jsonChars[pos] == ' ') { pos += 1 };
+    if (pos >= jLen or jsonChars[pos] != '{') { return null };
+    // Extract balanced object
+    var depth = 0;
+    var inStr = false;
+    var prevBackslash = false;
+    var obj = "";
+    var k = pos;
+    var done = false;
+    while (k < jLen and not done) {
+      let c = jsonChars[k];
+      obj := obj # Text.fromChar(c);
+      if (c == '\"' and not prevBackslash) {
+        inStr := not inStr;
+      } else if (not inStr) {
+        if (c == '{') { depth += 1 }
+        else if (c == '}') {
+          if (depth > 0) { depth -= 1 };
+          if (depth == 0) { done := true };
+        };
+      };
+      prevBackslash := (c == '\\' and not prevBackslash);
+      k += 1;
+    };
+    if (done) ?obj else null
+  };
+
   func doCreateVirtualAccount(caller : Principal, displayName : Text) : async VirtualAccountResult {
     let flwSecretKey = "FLWSECK-dfba4842dc7dcde8b394a8a0426d1a96-19d61e17ff4vt-X";
     let principalText = caller.toText();
     let principalArr = principalText.toArray();
-    var refSuffix = "";
+    // Build short principal suffix for email (first 8 alphanumeric chars)
+    var shortPrincipal = "";
     var ri = 0;
-    while (ri < 10 and ri < principalArr.size()) {
-      refSuffix := refSuffix # Text.fromChar(principalArr[ri]);
+    while (ri < principalArr.size() and shortPrincipal.size() < 8) {
+      let c = principalArr[ri];
+      if ((c >= 'a' and c <= 'z') or (c >= '0' and c <= '9')) {
+        shortPrincipal := shortPrincipal # Text.fromChar(c);
+      };
       ri += 1;
+    };
+    let email = "user-" # shortPrincipal # "@stancard.space";
+    // Build tx_ref using short principal + timestamp
+    var refSuffix = "";
+    var rj = 0;
+    while (rj < 10 and rj < principalArr.size()) {
+      refSuffix := refSuffix # Text.fromChar(principalArr[rj]);
+      rj += 1;
     };
     let now = Int.abs(Time.now());
     let reference = "STANCARD-" # refSuffix # "-" # now.toText();
-    let bodyJson = "{\"email\":\"user@stancard.app\",\"is_permanent\":false,\"tx_ref\":\"" # reference # "\",\"amount\":0,\"currency\":\"NGN\",\"narration\":\"" # displayName # "\"}";
-    let resp = await httpPost(
-      "https://api.flutterwave.com/v3/virtual-account-numbers",
-      bodyJson,
-      flwSecretKey
-    );
-    switch (resp) {
+    let bodyJson = "{\"email\":\"" # email # "\",\"is_permanent\":false,\"bvn\":\"00000000000\",\"tx_ref\":\"" # reference # "\",\"amount\":0,\"frequency\":1,\"narration\":\"Stancard NGN Wallet\",\"currency\":\"NGN\"}";
+    // Use a dedicated POST with smaller max_response_bytes for this endpoint
+    let bodyBytes = bodyJson.encodeUtf8();
+    let req : IC.http_request_args = {
+      url = "https://api.flutterwave.com/v3/virtual-account-numbers";
+      method = #post;
+      headers = [
+        { name = "Accept";        value = "application/json" },
+        { name = "Content-Type";  value = "application/json" },
+        { name = "Authorization"; value = "Bearer " # flwSecretKey },
+        { name = "User-Agent";    value = "Stancard/1.0" },
+      ];
+      body = ?bodyBytes;
+      max_response_bytes = ?4096;
+      transform = null;
+      is_replicated = null;
+    };
+    let respOpt : ?Text = try {
+      let resp = await (with cycles = 20_000_000_000) IC.http_request(req);
+      switch (resp.body.decodeUtf8()) {
+        case (?text) ?text;
+        case null null;
+      }
+    } catch (_) null;
+
+    switch (respOpt) {
       case null { #err("Network error. Please try again.") };
       case (?json) {
+        Debug.print("Flutterwave response: " # json);
         let statusOpt = extractStr(json, "status");
         let isSuccess = switch (statusOpt) {
           case (?s) (s == "success");
@@ -1084,28 +1169,35 @@ persistent actor {
         };
         if (not isSuccess) {
           let errMsg = switch (extractStr(json, "message")) {
-            case (?m) m;
+            case (?m) "Flutterwave error: " # m;
             case null "Unable to generate account number.";
           };
           return #err(errMsg);
         };
-        let accountNumber = switch (extractStr(json, "account_number")) {
+        // Extract account data from the nested "data" object
+        let dataJson = switch (extractDataObject(json)) {
+          case (?d) d;
+          case null json; // fall back to top-level if no data wrapper
+        };
+        let accountNumber = switch (extractStr(dataJson, "account_number")) {
           case (?v) v;
           case null "";
         };
-        let bankName = switch (extractStr(json, "bank_name")) {
+        let bankName = switch (extractStr(dataJson, "bank_name")) {
           case (?v) v;
-          case null "Flutterwave";
+          case null "WEMA BANK";
         };
-        let accountName = switch (extractStr(json, "account_name")) {
+        let accountName = switch (extractStr(dataJson, "account_name")) {
           case (?v) v;
           case null displayName;
         };
-        let expiresAt = switch (extractStr(json, "expiry_date")) {
+        let expiresAt = switch (extractStr(dataJson, "expiry_date")) {
           case (?v) v;
           case null "";
         };
         if (accountNumber == "") {
+          // Log the raw response for debugging
+          Debug.print("doCreateVirtualAccount: account_number empty in dataJson: " # dataJson);
           return #err("Unable to generate account number. Please try again.");
         };
         let va : VirtualAccount = { accountNumber; bankName; accountName; expiresAt; reference };

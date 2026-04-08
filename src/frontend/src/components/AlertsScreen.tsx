@@ -605,6 +605,7 @@ function AlertCard({
   );
 }
 
+// ── Market Pulse Retry Handler (lifted to component level via prop) ────────────
 // ── Market Pulse Card ──────────────────────────────────────────────────────────
 
 function PulseCard({
@@ -1354,13 +1355,58 @@ export function AlertsScreen({
           <div
             data-ocid="alerts.pulse.empty_state"
             style={{
+              background: "#1A1A1A",
+              border: "1px solid rgba(212,175,55,0.15)",
+              borderRadius: 12,
+              padding: "20px 16px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 10,
               textAlign: "center",
-              padding: "24px 0",
-              color: "#4A4A4A",
-              fontSize: 13,
             }}
           >
-            Market data unavailable
+            <div style={{ fontSize: 22, lineHeight: 1 }}>📡</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#E8E8E8" }}>
+              Unable to fetch market data
+            </div>
+            <div style={{ fontSize: 12, color: "#5A5A5A", lineHeight: 1.5 }}>
+              This may be a temporary connection issue. Tap to retry.
+            </div>
+            <button
+              type="button"
+              data-ocid="alerts.pulse.retry_button"
+              onClick={() => {
+                setLoadingMarket(true);
+                if (actor) {
+                  withTimeout(actor.getMarketData(), null as MarketData | null)
+                    .then((result) => {
+                      if (result) setMarketData(result);
+                    })
+                    .finally(() => setLoadingMarket(false));
+                } else {
+                  setLoadingMarket(false);
+                }
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                background:
+                  "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)",
+                border: "none",
+                borderRadius: 10,
+                padding: "8px 18px",
+                fontSize: 13,
+                fontWeight: 700,
+                color: "rgba(0,0,0,0.85)",
+                cursor: "pointer",
+                boxShadow: "0 2px 12px rgba(212,175,55,0.3)",
+              }}
+            >
+              <RefreshCw size={13} />
+              Retry
+            </button>
           </div>
         )}
       </section>

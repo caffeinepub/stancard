@@ -1,5 +1,12 @@
 import { Switch } from "@/components/ui/switch";
-import { Camera, ChevronRight, Loader2, User } from "lucide-react";
+import {
+  Camera,
+  Check,
+  ChevronRight,
+  Clipboard,
+  Loader2,
+  User,
+} from "lucide-react";
 import { useRef, useState } from "react";
 import { AboutScreen } from "./AboutScreen";
 
@@ -131,6 +138,34 @@ export function ProfileScreen({
 
   const isLoggedIn = !!identity;
   const initials = getInitials(displayName);
+
+  const [copiedPrincipal, setCopiedPrincipal] = useState(false);
+
+  let principalId = "";
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    principalId = (identity as any)?.getPrincipal?.()?.toText?.() ?? "";
+  } catch {
+    principalId = "";
+  }
+
+  function truncatePrincipal(id: string): string {
+    if (id.length <= 24) return id;
+    return `${id.slice(0, 10)}...${id.slice(-10)}`;
+  }
+
+  function handleCopyPrincipal() {
+    if (!principalId) return;
+    navigator.clipboard
+      .writeText(principalId)
+      .then(() => {
+        setCopiedPrincipal(true);
+        setTimeout(() => setCopiedPrincipal(false), 2000);
+      })
+      .catch(() => {
+        /* ignore */
+      });
+  }
 
   async function handleSaveName() {
     if (saveStatus === "saving") return;
@@ -486,6 +521,93 @@ export function ProfileScreen({
                     />
                   </svg>
                 </button>
+              )}
+
+              {/* Principal ID */}
+              {isLoggedIn && principalId && (
+                <div
+                  data-ocid="profile.principal_id.card"
+                  style={{
+                    width: "100%",
+                    maxWidth: 320,
+                    background: "#1a1a1a",
+                    border: "1px solid #2A2A2A",
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                    marginTop: 2,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: "#D4AF37",
+                      letterSpacing: "0.14em",
+                      textTransform: "uppercase",
+                      marginBottom: 6,
+                    }}
+                  >
+                    Your Principal ID
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <span
+                      style={{
+                        flex: 1,
+                        fontSize: 12,
+                        color: "#B0B0B0",
+                        fontFamily: "monospace",
+                        letterSpacing: "0.02em",
+                        wordBreak: "break-all",
+                        minWidth: 0,
+                      }}
+                      title={principalId}
+                    >
+                      {truncatePrincipal(principalId)}
+                    </span>
+                    <button
+                      type="button"
+                      data-ocid="profile.copy_principal.button"
+                      onClick={handleCopyPrincipal}
+                      aria-label="Copy principal ID"
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: copiedPrincipal ? "#4ade80" : "#D4AF37",
+                        display: "flex",
+                        alignItems: "center",
+                        padding: "2px 4px",
+                        borderRadius: 4,
+                        flexShrink: 0,
+                        transition: "color 0.15s ease",
+                      }}
+                    >
+                      {copiedPrincipal ? (
+                        <Check size={14} />
+                      ) : (
+                        <Clipboard size={14} />
+                      )}
+                    </button>
+                  </div>
+                  {copiedPrincipal && (
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: "#4ade80",
+                        marginTop: 4,
+                        letterSpacing: "0.04em",
+                      }}
+                    >
+                      Copied!
+                    </div>
+                  )}
+                </div>
               )}
 
               {/* Sign Out button */}

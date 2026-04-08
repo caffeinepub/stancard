@@ -1,6 +1,13 @@
 import { Bell, CreditCard, Home, TrendingUp, Truck } from "lucide-react";
 
-export type TabId = "home" | "markets" | "pay" | "alerts" | "profile" | "move";
+export type TabId =
+  | "home"
+  | "markets"
+  | "pay"
+  | "alerts"
+  | "profile"
+  | "move"
+  | "admin";
 
 interface NavTab {
   id: TabId;

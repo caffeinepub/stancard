@@ -1,11 +1,12 @@
-import { Bell, User } from "lucide-react";
+import { Shield, User } from "lucide-react";
 
 interface AppHeaderProps {
   displayName?: string;
   isLoggedIn?: boolean;
   avatarUrl?: string;
   onAvatarClick?: () => void;
-  onBellClick?: () => void;
+  isAdmin?: boolean;
+  onAdminClick?: () => void;
 }
 
 function getInitials(name: string): string {
@@ -20,7 +21,8 @@ export function AppHeader({
   isLoggedIn,
   avatarUrl,
   onAvatarClick,
-  onBellClick,
+  isAdmin,
+  onAdminClick,
 }: AppHeaderProps) {
   const initials = displayName ? getInitials(displayName) : "";
   const showImage = isLoggedIn && !!avatarUrl;
@@ -54,23 +56,31 @@ export function AppHeader({
         </span>
       </div>
 
-      {/* Right side: bell + avatar */}
+      {/* Right side: admin button (if admin) + avatar */}
       <div className="flex items-center gap-3">
-        {/* Notification Bell */}
-        <button
-          type="button"
-          className="flex items-center justify-center w-9 h-9 rounded-full transition-colors"
-          style={{
-            border: "1px solid #D4AF37",
-            background: "transparent",
-            color: "#D4AF37",
-          }}
-          aria-label="Notifications"
-          data-ocid="header.bell_button"
-          onClick={onBellClick}
-        >
-          <Bell size={16} strokeWidth={1.75} />
-        </button>
+        {/* Admin Button — visible only when isAdmin is true */}
+        {isAdmin && (
+          <button
+            type="button"
+            className="flex items-center gap-1.5 px-3 h-8 rounded-full transition-all duration-200"
+            style={{
+              border: "1px solid rgba(212,175,55,0.5)",
+              background: "rgba(212,175,55,0.08)",
+              color: "#D4AF37",
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              cursor: "pointer",
+            }}
+            aria-label="Admin Dashboard"
+            data-ocid="header.admin_button"
+            onClick={onAdminClick}
+          >
+            <Shield size={12} strokeWidth={2} />
+            <span className="hidden sm:inline">Admin</span>
+          </button>
+        )}
 
         {/* Avatar — all screen sizes */}
         <button

@@ -2,6 +2,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { AddToHomeScreen } from "./components/AddToHomeScreen";
+import { AdminDashboard } from "./components/AdminDashboard";
 import type { Alert } from "./components/AlertsScreen";
 import { AlertsScreen } from "./components/AlertsScreen";
 import { AppHeader } from "./components/AppHeader";
@@ -168,6 +169,7 @@ interface ExtendedActor {
   getSenderRequests: () => Promise<unknown[]>;
   getAcceptedDeliveries: () => Promise<unknown[]>;
   getTrackingByCode: (code: string) => Promise<unknown>;
+  isAdminCaller: () => Promise<boolean>;
 }
 
 function loadFromStorage<T>(key: string, defaultValue: T): T {
@@ -215,6 +217,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>("home");
   const [alertBadge, setAlertBadge] = useState(false);
   const [activeBanner, setActiveBanner] = useState<Alert | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // ── Tracking page state ──
   // null = not showing, string (empty or code) = showing tracking page
@@ -342,6 +345,7 @@ export default function App() {
     // On logout, reset syncDoneRef so next login syncs again
     if (!isNowLoggedIn) {
       syncDoneRef.current = false;
+      setIsAdmin(false);
       return;
     }
 
@@ -352,6 +356,19 @@ export default function App() {
 
     const prefs = prefsRef.current;
     void (async () => {
+      // Check admin status (8s timeout, fails silently)
+      try {
+        const adminResult = await Promise.race([
+          actor.isAdminCaller(),
+          new Promise<boolean>((resolve) =>
+            setTimeout(() => resolve(false), 8000),
+          ),
+        ]);
+        setIsAdmin(adminResult);
+      } catch {
+        setIsAdmin(false);
+      }
+
       try {
         const profile = await actor.getUserProfile();
         if (profile) {
@@ -531,6 +548,13 @@ export default function App() {
           onLogout={handleLogout}
         />
       )}
+      {activeTab === "admin" && (
+        <AdminDashboard
+          actor={actor}
+          isAdmin={isAdmin}
+          onExit={() => setActiveTab("home")}
+        />
+      )}
     </>
   );
 
@@ -549,7 +573,8 @@ export default function App() {
         isLoggedIn={!!identity}
         avatarUrl={avatarUrl}
         onAvatarClick={() => setActiveTab("profile")}
-        onBellClick={() => setActiveTab("alerts")}
+        isAdmin={isAdmin}
+        onAdminClick={() => setActiveTab("admin")}
       />
 
       {/* Desktop Sidebar - only visible on lg+ */}

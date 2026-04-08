@@ -779,6 +779,14 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
     }
   }, [actor, fetchHistoricalData]);
 
+  // Manual refresh — clears the pending lock so user-triggered refresh always fires
+  const handleManualRefresh = useCallback(() => {
+    if (!actor) return;
+    pendingRef.current = false;
+    setIsLoading(true);
+    fetchData();
+  }, [actor, fetchData]);
+
   // Initial fetch — fires when actor first becomes available
   const initialFetchedRef = useRef(false);
   useEffect(() => {
@@ -909,8 +917,8 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
           )}
           <button
             type="button"
-            onClick={fetchData}
-            className="w-8 h-8 rounded-full flex items-center justify-center"
+            onClick={handleManualRefresh}
+            className="w-8 h-8 rounded-full flex items-center justify-center transition-colors"
             style={{
               background: "#1A1A1A",
               border: "1px solid #2A2A2A",
@@ -918,6 +926,7 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
             }}
             data-ocid="markets.secondary_button"
             aria-label="Refresh market data"
+            disabled={isLoading}
           >
             <RefreshCw size={13} className={isLoading ? "animate-spin" : ""} />
           </button>

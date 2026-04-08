@@ -18,19 +18,483 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  Camera,
   Check,
-  Clock,
   Copy,
   CreditCard,
   Download,
   Lock,
+  QrCode,
   RefreshCw,
   Send,
   Wallet,
+  X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import QRCodeLib from "qrcode";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+
+// ── QR Code Generation ─────────────────────────────────────────────────────────
+
+function QRCodeDisplay({
+  value,
+  size = 200,
+}: { value: string; size?: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [generated, setGenerated] = useState(false);
+
+  useEffect(() => {
+    if (!canvasRef.current || !value) return;
+    setGenerated(false);
+    const timeout = setTimeout(() => {
+      // 8-second timeout on QR generation
+      const timer = setTimeout(() => setGenerated(true), 8000);
+      QRCodeLib.toCanvas(canvasRef.current, value, {
+        width: size,
+        margin: 2,
+        color: {
+          dark: "#D4AF37",
+          light: "#0F0F0F",
+        },
+        errorCorrectionLevel: "M",
+      })
+        .then(() => {
+          clearTimeout(timer);
+          setGenerated(true);
+        })
+        .catch(() => {
+          clearTimeout(timer);
+          setGenerated(true);
+        });
+    }, 50);
+    return () => clearTimeout(timeout);
+  }, [value, size]);
+
+  return (
+    <div
+      style={{
+        background: "#0F0F0F",
+        border: "2px solid rgba(212,175,55,0.4)",
+        borderRadius: 12,
+        padding: 12,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        boxShadow: "0 0 24px rgba(212,175,55,0.12)",
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        width={size}
+        height={size}
+        style={{
+          borderRadius: 6,
+          display: "block",
+          opacity: generated ? 1 : 0.3,
+          transition: "opacity 0.3s ease",
+        }}
+      />
+    </div>
+  );
+}
+
+// ── QR Code Scanner ────────────────────────────────────────────────────────────
+
+function QRScanner({
+  onScan,
+  onClose,
+}: {
+  onScan: (result: string) => void;
+  onClose: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [error, setError] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const animFrameRef = useRef<number>(0);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function startCamera() {
+      setError("");
+      setScanning(false);
+      try {
+        const stream = await Promise.race([
+          navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment" },
+          }),
+          new Promise<never>((_, rej) =>
+            setTimeout(() => rej(new Error("Camera timeout")), 8000),
+          ),
+        ]);
+        if (!mounted) {
+          for (const track of stream.getTracks()) track.stop();
+          return;
+        }
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+          setScanning(true);
+          startDecode();
+        }
+      } catch {
+        if (mounted)
+          setError(
+            "Camera not accessible. Please paste the principal ID manually.",
+          );
+      }
+    }
+
+    void startCamera();
+
+    return () => {
+      mounted = false;
+      stopCamera();
+    };
+  }, []);
+
+  function stopCamera() {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    if (streamRef.current) {
+      for (const track of streamRef.current.getTracks()) track.stop();
+      streamRef.current = null;
+    }
+  }
+
+  function startDecode() {
+    // Use @zxing/browser dynamically to decode QR code frames
+    import("@zxing/browser")
+      .then(({ BrowserMultiFormatReader }) => {
+        const reader = new BrowserMultiFormatReader();
+
+        function tick() {
+          if (!videoRef.current || !canvasRef.current) return;
+          const video = videoRef.current;
+          const canvas = canvasRef.current;
+          if (video.readyState < 2) {
+            animFrameRef.current = requestAnimationFrame(tick);
+            return;
+          }
+          canvas.width = video.videoWidth || 320;
+          canvas.height = video.videoHeight || 320;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            animFrameRef.current = requestAnimationFrame(tick);
+            return;
+          }
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          try {
+            const result = reader.decodeFromCanvas(canvas);
+            if (result) {
+              stopCamera();
+              onScan(result.getText());
+              return;
+            }
+          } catch {
+            // No QR code found in this frame — keep scanning
+          }
+          animFrameRef.current = requestAnimationFrame(tick);
+        }
+        animFrameRef.current = requestAnimationFrame(tick);
+      })
+      .catch(() => {
+        setError(
+          "QR scanner unavailable. Please paste the principal ID manually.",
+        );
+      });
+  }
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.95)",
+        zIndex: 9999,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 16,
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 400,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 16px",
+          marginBottom: 8,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 17,
+            fontWeight: 700,
+            background:
+              "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            backgroundClip: "text",
+          }}
+        >
+          Scan QR Code
+        </span>
+        <button
+          type="button"
+          onClick={() => {
+            stopCamera();
+            onClose();
+          }}
+          aria-label="Close scanner"
+          style={{
+            background: "rgba(255,255,255,0.08)",
+            border: "none",
+            borderRadius: "50%",
+            width: 36,
+            height: 36,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+          }}
+        >
+          <X size={18} color="#E8E8E8" />
+        </button>
+      </div>
+
+      {/* Video / Error */}
+      {error ? (
+        <div
+          style={{
+            background: "#1A1A1A",
+            border: "1px solid rgba(224,82,82,0.3)",
+            borderRadius: 14,
+            padding: "24px 20px",
+            maxWidth: 320,
+            textAlign: "center",
+            color: "#E8E8E8",
+            fontSize: 14,
+            lineHeight: 1.6,
+          }}
+        >
+          {error}
+        </div>
+      ) : (
+        <div style={{ position: "relative" }}>
+          <video
+            ref={videoRef}
+            muted
+            playsInline
+            style={{
+              width: 300,
+              height: 300,
+              borderRadius: 16,
+              objectFit: "cover",
+              border: "2px solid rgba(212,175,55,0.5)",
+              display: "block",
+            }}
+          />
+          <canvas ref={canvasRef} style={{ display: "none" }} />
+          {/* Corner guides */}
+          {scanning && (
+            <>
+              {(["tl", "tr", "bl", "br"] as const).map((pos) => (
+                <div
+                  key={pos}
+                  style={{
+                    position: "absolute",
+                    width: 24,
+                    height: 24,
+                    borderColor: "#D4AF37",
+                    borderStyle: "solid",
+                    borderWidth: 0,
+                    ...(pos === "tl"
+                      ? {
+                          top: 12,
+                          left: 12,
+                          borderTopWidth: 3,
+                          borderLeftWidth: 3,
+                          borderTopLeftRadius: 4,
+                        }
+                      : {}),
+                    ...(pos === "tr"
+                      ? {
+                          top: 12,
+                          right: 12,
+                          borderTopWidth: 3,
+                          borderRightWidth: 3,
+                          borderTopRightRadius: 4,
+                        }
+                      : {}),
+                    ...(pos === "bl"
+                      ? {
+                          bottom: 12,
+                          left: 12,
+                          borderBottomWidth: 3,
+                          borderLeftWidth: 3,
+                          borderBottomLeftRadius: 4,
+                        }
+                      : {}),
+                    ...(pos === "br"
+                      ? {
+                          bottom: 12,
+                          right: 12,
+                          borderBottomWidth: 3,
+                          borderRightWidth: 3,
+                          borderBottomRightRadius: 4,
+                        }
+                      : {}),
+                  }}
+                />
+              ))}
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  textAlign: "center",
+                  padding: "8px 0",
+                  fontSize: 12,
+                  color: "rgba(212,175,55,0.8)",
+                  fontWeight: 600,
+                  letterSpacing: "0.04em",
+                }}
+              >
+                Point at a Stancard QR code
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── QR Receive Section ─────────────────────────────────────────────────────────
+
+function QRReceiveSection({
+  principalId,
+}: {
+  principalId: string;
+}) {
+  const [copiedPrincipal, setCopiedPrincipal] = useState(false);
+
+  function handleCopyPrincipal() {
+    navigator.clipboard.writeText(principalId);
+    setCopiedPrincipal(true);
+    setTimeout(() => setCopiedPrincipal(false), 2000);
+  }
+
+  return (
+    <div
+      data-ocid="pay.receive.qr_section"
+      style={{
+        background: "#1A1A1A",
+        border: "1px solid rgba(212,175,55,0.25)",
+        borderRadius: 14,
+        padding: "20px 16px",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 14,
+      }}
+    >
+      {/* Header */}
+      <div style={{ textAlign: "center" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 7,
+            marginBottom: 4,
+          }}
+        >
+          <QrCode size={16} color="#D4AF37" />
+          <span
+            style={{
+              fontSize: 13,
+              fontWeight: 700,
+              color: "#E8E8E8",
+              letterSpacing: "0.02em",
+            }}
+          >
+            Receive via QR Code
+          </span>
+        </div>
+        <p
+          style={{
+            fontSize: 11,
+            color: "#6C6C6C",
+            margin: 0,
+            lineHeight: 1.5,
+          }}
+        >
+          Anyone can scan this to send you money directly
+        </p>
+      </div>
+
+      {/* QR Code */}
+      <QRCodeDisplay value={principalId} size={180} />
+
+      {/* Copy Principal ID */}
+      <button
+        type="button"
+        data-ocid="pay.receive.copy_principal.button"
+        onClick={handleCopyPrincipal}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+          background: copiedPrincipal
+            ? "rgba(212,175,55,0.15)"
+            : "rgba(212,175,55,0.07)",
+          border: "1px solid rgba(212,175,55,0.3)",
+          borderRadius: 10,
+          padding: "9px 18px",
+          cursor: "pointer",
+          color: "#D4AF37",
+          fontSize: 13,
+          fontWeight: 600,
+          transition: "all 0.2s ease",
+          width: "100%",
+          justifyContent: "center",
+          maxWidth: 240,
+        }}
+      >
+        {copiedPrincipal ? <Check size={14} /> : <Copy size={14} />}
+        {copiedPrincipal ? "Copied!" : "Copy Principal ID"}
+      </button>
+
+      {/* Truncated ID preview */}
+      <div
+        style={{
+          fontSize: 11,
+          color: "#4A4A4A",
+          fontFamily: "monospace",
+          textAlign: "center",
+          wordBreak: "break-all",
+          padding: "0 8px",
+        }}
+      >
+        {principalId.length > 30
+          ? `${principalId.slice(0, 15)}...${principalId.slice(-15)}`
+          : principalId}
+      </div>
+    </div>
+  );
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -836,6 +1300,7 @@ function SendModal({
   const [currency, setCurrency] = useState<Currency>(defaultCurrency);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
 
   // Success state
   const [successData, setSuccessData] = useState<{
@@ -927,168 +1392,314 @@ function SendModal({
     "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)";
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(v) => {
-        if (!v) handleClose();
-      }}
-    >
-      <DialogContent
-        data-ocid="pay.send.modal"
-        style={{
-          background: "#0F0F0F",
-          border: "1px solid #2A2A2A",
-          borderRadius: 16,
-          maxWidth: 380,
+    <>
+      {showQRScanner && (
+        <QRScanner
+          onScan={(result) => {
+            const trimmed = result.trim();
+            if (isValidPrincipalId(trimmed)) {
+              setPrincipalId(trimmed);
+              setErrors((p) => ({ ...p, principalId: "" }));
+              setShowQRScanner(false);
+              toast.success("Recipient ID filled from QR code");
+            } else {
+              toast.error(
+                "Invalid QR code — does not contain a valid Stancard principal ID",
+              );
+              setShowQRScanner(false);
+            }
+          }}
+          onClose={() => setShowQRScanner(false)}
+        />
+      )}
+      <Dialog
+        open={open}
+        onOpenChange={(v) => {
+          if (!v) handleClose();
         }}
       >
-        {view === "form" ? (
-          <>
-            <DialogHeader>
-              <DialogTitle
+        <DialogContent
+          data-ocid="pay.send.modal"
+          style={{
+            background: "#0F0F0F",
+            border: "1px solid #2A2A2A",
+            borderRadius: 16,
+            maxWidth: 380,
+          }}
+        >
+          {view === "form" ? (
+            <>
+              <DialogHeader>
+                <DialogTitle
+                  style={{
+                    background: goldGradient,
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                    backgroundClip: "text",
+                    fontSize: 18,
+                    fontWeight: 700,
+                  }}
+                >
+                  Send Money
+                </DialogTitle>
+              </DialogHeader>
+
+              <div className="flex flex-col gap-4 mt-2">
+                {/* Recipient Stancard ID */}
+                <div>
+                  <Label
+                    style={{
+                      color: "#7A7A7A",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      letterSpacing: "0.06em",
+                    }}
+                  >
+                    RECIPIENT STANCARD ID
+                  </Label>
+                  <div className="flex gap-2 mt-1.5">
+                    <Input
+                      data-ocid="pay.send.recipient.input"
+                      placeholder="e.g. abc12-xyz34-..."
+                      value={principalId}
+                      onChange={(e) => {
+                        setPrincipalId(e.target.value);
+                        setErrors((p) => ({ ...p, principalId: "" }));
+                      }}
+                      style={{ ...fieldStyle, flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      data-ocid="pay.send.scan_qr.button"
+                      onClick={() => setShowQRScanner(true)}
+                      aria-label="Scan QR code"
+                      title="Scan QR code"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 5,
+                        background: "rgba(212,175,55,0.1)",
+                        border: "1px solid rgba(212,175,55,0.35)",
+                        borderRadius: 10,
+                        padding: "0 12px",
+                        cursor: "pointer",
+                        color: "#D4AF37",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        flexShrink: 0,
+                        height: "100%",
+                        minWidth: 72,
+                        transition: "background 0.2s ease",
+                      }}
+                    >
+                      <Camera size={15} />
+                      <span>Scan</span>
+                    </button>
+                  </div>
+                  {errors.principalId && (
+                    <p
+                      data-ocid="pay.send.error_state"
+                      style={{ color: "#E05252", fontSize: 12, marginTop: 4 }}
+                    >
+                      {errors.principalId}
+                    </p>
+                  )}
+                </div>
+
+                {/* Currency */}
+                <div>
+                  <Label
+                    style={{
+                      color: "#7A7A7A",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      letterSpacing: "0.06em",
+                    }}
+                  >
+                    CURRENCY
+                  </Label>
+                  <Select
+                    value={currency}
+                    onValueChange={(v) => setCurrency(v as Currency)}
+                  >
+                    <SelectTrigger
+                      data-ocid="pay.send.currency.select"
+                      style={{ ...fieldStyle, marginTop: 6 }}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent
+                      style={{
+                        background: "#1A1A1A",
+                        border: "1px solid #2A2A2A",
+                      }}
+                    >
+                      {CURRENCIES.map((c) => (
+                        <SelectItem
+                          key={c}
+                          value={c}
+                          style={{ color: "#E8E8E8" }}
+                        >
+                          {c}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Amount */}
+                <div>
+                  <Label
+                    style={{
+                      color: "#7A7A7A",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      letterSpacing: "0.06em",
+                    }}
+                  >
+                    AMOUNT
+                  </Label>
+                  <div className="relative mt-1.5">
+                    <span
+                      style={{
+                        position: "absolute",
+                        left: 12,
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        color: "#D4AF37",
+                        fontWeight: 700,
+                        fontSize: 16,
+                        pointerEvents: "none",
+                      }}
+                    >
+                      {CURRENCY_SYMBOL[currency]}
+                    </span>
+                    <Input
+                      data-ocid="pay.send.amount.input"
+                      type="number"
+                      min="0"
+                      placeholder="0.00"
+                      value={amount}
+                      onChange={(e) => {
+                        setAmount(e.target.value);
+                        setErrors((p) => ({ ...p, amount: "" }));
+                      }}
+                      style={{
+                        ...fieldStyle,
+                        paddingLeft: 32,
+                        fontSize: 16,
+                        fontWeight: 600,
+                      }}
+                    />
+                  </div>
+                  {errors.amount && (
+                    <p style={{ color: "#E05252", fontSize: 12, marginTop: 4 }}>
+                      {errors.amount}
+                    </p>
+                  )}
+                </div>
+
+                <Button
+                  data-ocid="pay.send.submit_button"
+                  onClick={() => void handleSubmit()}
+                  disabled={submitting}
+                  className="w-full"
+                  style={{
+                    background: goldGradient,
+                    color: "rgba(0,0,0,0.85)",
+                    fontWeight: 700,
+                    fontSize: 15,
+                    borderRadius: 12,
+                    padding: "12px 0",
+                    height: "auto",
+                    boxShadow: "0 4px 20px rgba(212,175,55,0.3)",
+                    border: "none",
+                    opacity: submitting ? 0.7 : 1,
+                  }}
+                >
+                  {submitting ? "Sending..." : "Send Money"}
+                </Button>
+              </div>
+            </>
+          ) : (
+            /* ── Success Screen ── */
+            <div className="flex flex-col items-center gap-5 py-4">
+              {/* Gold checkmark circle */}
+              <div
                 style={{
+                  width: 72,
+                  height: 72,
+                  borderRadius: "50%",
                   background: goldGradient,
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                  backgroundClip: "text",
-                  fontSize: 18,
-                  fontWeight: 700,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxShadow: "0 0 32px rgba(212,175,55,0.45)",
                 }}
               >
-                Send Money
-              </DialogTitle>
-            </DialogHeader>
-
-            <div className="flex flex-col gap-4 mt-2">
-              {/* Recipient Stancard ID */}
-              <div>
-                <Label
+                <span
                   style={{
-                    color: "#7A7A7A",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    letterSpacing: "0.06em",
+                    color: "rgba(0,0,0,0.85)",
+                    fontSize: 36,
+                    fontWeight: 800,
+                    lineHeight: 1,
                   }}
                 >
-                  RECIPIENT STANCARD ID
-                </Label>
-                <Input
-                  data-ocid="pay.send.recipient.input"
-                  placeholder="e.g. abc12-xyz34-..."
-                  value={principalId}
-                  onChange={(e) => {
-                    setPrincipalId(e.target.value);
-                    setErrors((p) => ({ ...p, principalId: "" }));
-                  }}
-                  style={{ ...fieldStyle, marginTop: 6 }}
-                />
-                {errors.principalId && (
-                  <p
-                    data-ocid="pay.send.error_state"
-                    style={{ color: "#E05252", fontSize: 12, marginTop: 4 }}
-                  >
-                    {errors.principalId}
-                  </p>
-                )}
+                  ✓
+                </span>
               </div>
 
-              {/* Currency */}
-              <div>
-                <Label
+              <div className="text-center">
+                <h2
                   style={{
-                    color: "#7A7A7A",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    letterSpacing: "0.06em",
+                    background: goldGradient,
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                    backgroundClip: "text",
+                    fontSize: 22,
+                    fontWeight: 800,
+                    margin: "0 0 4px",
                   }}
                 >
-                  CURRENCY
-                </Label>
-                <Select
-                  value={currency}
-                  onValueChange={(v) => setCurrency(v as Currency)}
-                >
-                  <SelectTrigger
-                    data-ocid="pay.send.currency.select"
-                    style={{ ...fieldStyle, marginTop: 6 }}
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent
-                    style={{
-                      background: "#1A1A1A",
-                      border: "1px solid #2A2A2A",
-                    }}
-                  >
-                    {CURRENCIES.map((c) => (
-                      <SelectItem
-                        key={c}
-                        value={c}
-                        style={{ color: "#E8E8E8" }}
-                      >
-                        {c}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  Transfer Successful
+                </h2>
+                <p style={{ color: "#7A7A7A", fontSize: 13, margin: 0 }}>
+                  Your funds have been sent
+                </p>
               </div>
 
-              {/* Amount */}
-              <div>
-                <Label
+              {successData && (
+                <div
+                  className="w-full flex flex-col gap-3"
                   style={{
-                    color: "#7A7A7A",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    letterSpacing: "0.06em",
+                    background: "#1A1A1A",
+                    border: "1px solid #2A2A2A",
+                    borderRadius: 12,
+                    padding: "16px",
                   }}
                 >
-                  AMOUNT
-                </Label>
-                <div className="relative mt-1.5">
-                  <span
-                    style={{
-                      position: "absolute",
-                      left: 12,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      color: "#D4AF37",
-                      fontWeight: 700,
-                      fontSize: 16,
-                      pointerEvents: "none",
-                    }}
-                  >
-                    {CURRENCY_SYMBOL[currency]}
-                  </span>
-                  <Input
-                    data-ocid="pay.send.amount.input"
-                    type="number"
-                    min="0"
-                    placeholder="0.00"
-                    value={amount}
-                    onChange={(e) => {
-                      setAmount(e.target.value);
-                      setErrors((p) => ({ ...p, amount: "" }));
-                    }}
-                    style={{
-                      ...fieldStyle,
-                      paddingLeft: 32,
-                      fontSize: 16,
-                      fontWeight: 600,
-                    }}
+                  <SuccessRow
+                    label="Recipient"
+                    value={truncateId(successData.recipientId)}
+                  />
+                  <SuccessRow
+                    label="Amount"
+                    value={`${CURRENCY_SYMBOL[successData.currency]}${successData.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}`}
+                    gold
+                  />
+                  <SuccessRow label="Timestamp" value={successData.timestamp} />
+                  <SuccessRow
+                    label="Reference"
+                    value={successData.reference}
+                    mono
                   />
                 </div>
-                {errors.amount && (
-                  <p style={{ color: "#E05252", fontSize: 12, marginTop: 4 }}>
-                    {errors.amount}
-                  </p>
-                )}
-              </div>
+              )}
 
               <Button
-                data-ocid="pay.send.submit_button"
-                onClick={() => void handleSubmit()}
-                disabled={submitting}
+                data-ocid="pay.send.success.close_button"
+                onClick={handleClose}
                 className="w-full"
                 style={{
                   background: goldGradient,
@@ -1100,110 +1711,15 @@ function SendModal({
                   height: "auto",
                   boxShadow: "0 4px 20px rgba(212,175,55,0.3)",
                   border: "none",
-                  opacity: submitting ? 0.7 : 1,
                 }}
               >
-                {submitting ? "Sending..." : "Send Money"}
+                Done
               </Button>
             </div>
-          </>
-        ) : (
-          /* ── Success Screen ── */
-          <div className="flex flex-col items-center gap-5 py-4">
-            {/* Gold checkmark circle */}
-            <div
-              style={{
-                width: 72,
-                height: 72,
-                borderRadius: "50%",
-                background: goldGradient,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: "0 0 32px rgba(212,175,55,0.45)",
-              }}
-            >
-              <span
-                style={{
-                  color: "rgba(0,0,0,0.85)",
-                  fontSize: 36,
-                  fontWeight: 800,
-                  lineHeight: 1,
-                }}
-              >
-                ✓
-              </span>
-            </div>
-
-            <div className="text-center">
-              <h2
-                style={{
-                  background: goldGradient,
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                  backgroundClip: "text",
-                  fontSize: 22,
-                  fontWeight: 800,
-                  margin: "0 0 4px",
-                }}
-              >
-                Transfer Successful
-              </h2>
-              <p style={{ color: "#7A7A7A", fontSize: 13, margin: 0 }}>
-                Your funds have been sent
-              </p>
-            </div>
-
-            {successData && (
-              <div
-                className="w-full flex flex-col gap-3"
-                style={{
-                  background: "#1A1A1A",
-                  border: "1px solid #2A2A2A",
-                  borderRadius: 12,
-                  padding: "16px",
-                }}
-              >
-                <SuccessRow
-                  label="Recipient"
-                  value={truncateId(successData.recipientId)}
-                />
-                <SuccessRow
-                  label="Amount"
-                  value={`${CURRENCY_SYMBOL[successData.currency]}${successData.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}`}
-                  gold
-                />
-                <SuccessRow label="Timestamp" value={successData.timestamp} />
-                <SuccessRow
-                  label="Reference"
-                  value={successData.reference}
-                  mono
-                />
-              </div>
-            )}
-
-            <Button
-              data-ocid="pay.send.success.close_button"
-              onClick={handleClose}
-              className="w-full"
-              style={{
-                background: goldGradient,
-                color: "rgba(0,0,0,0.85)",
-                fontWeight: 700,
-                fontSize: 15,
-                borderRadius: 12,
-                padding: "12px 0",
-                height: "auto",
-                boxShadow: "0 4px 20px rgba(212,175,55,0.3)",
-                border: "none",
-              }}
-            >
-              Done
-            </Button>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -1278,6 +1794,7 @@ function ReceiveModal({
   isLoggedIn,
   actor,
   displayName,
+  principalId,
 }: {
   open: boolean;
   onClose: () => void;
@@ -1286,6 +1803,7 @@ function ReceiveModal({
   isLoggedIn: boolean;
   actor?: ActorLike | null;
   displayName?: string;
+  principalId?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [amount, setAmount] = useState("");
@@ -1959,11 +2477,22 @@ function ReceiveModal({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4 mt-2">
+        <div
+          className="flex flex-col gap-4 mt-2"
+          style={{ maxHeight: "70vh", overflowY: "auto" }}
+        >
           {currency === "NGN" ? (
-            renderNGNSection()
-          ) : (
-            /* Non-NGN: international virtual accounts coming soon */
+            <>
+              {renderNGNSection()}
+              {/* QR code section below virtual account — always shown when logged in */}
+              {isLoggedIn && principalId && (
+                <QRReceiveSection principalId={principalId} />
+              )}
+            </>
+          ) : /* Non-NGN: QR code as primary receive method */
+          isLoggedIn && principalId ? (
+            <QRReceiveSection principalId={principalId} />
+          ) : !isLoggedIn ? (
             <div
               style={{
                 background: "#1A1A1A",
@@ -1973,10 +2502,10 @@ function ReceiveModal({
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
-                gap: 16,
+                gap: 12,
+                textAlign: "center",
               }}
             >
-              {/* Icon */}
               <div
                 style={{
                   width: 48,
@@ -1987,41 +2516,36 @@ function ReceiveModal({
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  flexShrink: 0,
                 }}
               >
-                <Clock size={28} color="#D4AF37" />
+                <Lock size={22} color="#D4AF37" />
               </div>
-
-              {/* Heading */}
-              <div
-                style={{
-                  fontSize: 15,
-                  fontWeight: 700,
-                  color: "#E8E8E8",
-                  textAlign: "center",
-                  lineHeight: 1.4,
-                }}
-              >
-                International virtual accounts coming soon.
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#E8E8E8" }}>
+                Sign in to receive payments
               </div>
-
-              {/* Body */}
-              <div
-                style={{
-                  fontSize: 13,
-                  color: "#7A7A7A",
-                  textAlign: "center",
-                  maxWidth: 280,
-                  lineHeight: 1.6,
-                }}
-              >
-                Currently you can receive{" "}
+              <div style={{ fontSize: 12, color: "#5A5A5A", maxWidth: 240 }}>
+                Sign in to generate your QR code for receiving{" "}
                 <span style={{ color: "#D4AF37", fontWeight: 700 }}>
                   {currency}
-                </span>{" "}
-                by requesting a direct transfer from another Stancard user.
+                </span>
+                .
               </div>
+            </div>
+          ) : (
+            /* Logged in but no principal yet — show note */
+            <div
+              style={{
+                background: "#1A1A1A",
+                border: "1px solid rgba(212,175,55,0.25)",
+                borderRadius: 12,
+                padding: "24px 16px",
+                textAlign: "center",
+                color: "#7A7A7A",
+                fontSize: 13,
+                lineHeight: 1.6,
+              }}
+            >
+              Ask the sender to use your Stancard ID for a direct transfer.
             </div>
           )}
 
@@ -2175,8 +2699,8 @@ function ReceiveModal({
             </>
           )}
 
-          {/* ISSUE 3: Close button for non-NGN currencies (no fake confirm) */}
-          {currency !== "NGN" && (
+          {/* ISSUE 3: Close button for non-NGN currencies only when not showing QR */}
+          {currency !== "NGN" && !isLoggedIn && (
             <Button
               data-ocid="pay.receive.close_button"
               onClick={onClose}
@@ -2311,6 +2835,17 @@ export function PayScreen({
   displayName?: string;
 }) {
   const isLoggedIn = !!identity;
+
+  // Extract principal ID from identity for QR code generation
+  const principalId = (() => {
+    try {
+      if (!identity) return undefined;
+      const id = identity as { getPrincipal?: () => { toText?: () => string } };
+      return id.getPrincipal?.()?.toText?.();
+    } catch {
+      return undefined;
+    }
+  })();
 
   const [selectedCurrency, setSelectedCurrency] = useState<Currency>("NGN");
   const [balances, setBalances] =
@@ -2845,6 +3380,7 @@ export function PayScreen({
         isLoggedIn={isLoggedIn}
         actor={actor}
         displayName={displayName}
+        principalId={principalId}
       />
     </div>
   );

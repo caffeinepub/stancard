@@ -125,6 +125,17 @@ export const NewsData = IDL.Record({
   'lastUpdated' : IDL.Nat,
   'success' : IDL.Bool,
 });
+export const RiderVerification = IDL.Record({
+  'riderPrincipal' : IDL.Principal,
+  'vehicleRegDocUrl' : IDL.Opt(IDL.Text),
+  'licenseDocUrl' : IDL.Opt(IDL.Text),
+  'nationalIdDocUrl' : IDL.Opt(IDL.Text),
+  'licenseType' : IDL.Text,
+  'licenseNumber' : IDL.Text,
+  'vehicleRegistrationNumber' : IDL.Text,
+  'verifiedAt' : IDL.Int,
+  'nationalIdNumber' : IDL.Text,
+});
 export const Package = IDL.Record({
   'createdAt' : IDL.Int,
   'size' : IDL.Text,
@@ -142,6 +153,13 @@ export const ShipmentTracking = IDL.Record({
   'entries' : IDL.Vec(TrackingEntry),
   'currentStatus' : IDL.Text,
   'packageId' : IDL.Text,
+});
+export const SenderVerification = IDL.Record({
+  'nationalIdDocUrl' : IDL.Opt(IDL.Text),
+  'senderPrincipal' : IDL.Principal,
+  'phoneNumber' : IDL.Text,
+  'verifiedAt' : IDL.Int,
+  'nationalIdNumber' : IDL.Text,
 });
 export const UserProfile = IDL.Record({
   'hideBalance' : IDL.Bool,
@@ -209,9 +227,19 @@ export const idlService = IDL.Service({
     ),
   'getNewsData' : IDL.Func([], [NewsData], []),
   'getRiderRoutes' : IDL.Func([], [IDL.Vec(RiderRoute)], ['query']),
+  'getRiderVerification' : IDL.Func(
+      [],
+      [IDL.Opt(RiderVerification)],
+      ['query'],
+    ),
   'getSenderPackages' : IDL.Func([], [IDL.Vec(Package)], ['query']),
   'getSenderRequests' : IDL.Func([], [IDL.Vec(DeliveryRequest)], ['query']),
   'getSenderTrackings' : IDL.Func([], [IDL.Vec(ShipmentTracking)], ['query']),
+  'getSenderVerification' : IDL.Func(
+      [],
+      [IDL.Opt(SenderVerification)],
+      ['query'],
+    ),
   'getTrackingByCode' : IDL.Func(
       [IDL.Text],
       [IDL.Opt(ShipmentTracking)],
@@ -273,6 +301,24 @@ export const idlService = IDL.Service({
   'sendMoney' : IDL.Func(
       [IDL.Text, IDL.Float64, IDL.Text, IDL.Text],
       [SendMoneyResult],
+      [],
+    ),
+  'submitRiderVerification' : IDL.Func(
+      [
+        IDL.Text,
+        IDL.Text,
+        IDL.Text,
+        IDL.Text,
+        IDL.Opt(IDL.Text),
+        IDL.Opt(IDL.Text),
+        IDL.Opt(IDL.Text),
+      ],
+      [MoveResult],
+      [],
+    ),
+  'submitSenderVerification' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Opt(IDL.Text)],
+      [MoveResult],
       [],
     ),
   'updateAlert' : IDL.Func([IDL.Text, IDL.Bool], [IDL.Bool], []),
@@ -415,6 +461,17 @@ export const idlFactory = ({ IDL }) => {
     'lastUpdated' : IDL.Nat,
     'success' : IDL.Bool,
   });
+  const RiderVerification = IDL.Record({
+    'riderPrincipal' : IDL.Principal,
+    'vehicleRegDocUrl' : IDL.Opt(IDL.Text),
+    'licenseDocUrl' : IDL.Opt(IDL.Text),
+    'nationalIdDocUrl' : IDL.Opt(IDL.Text),
+    'licenseType' : IDL.Text,
+    'licenseNumber' : IDL.Text,
+    'vehicleRegistrationNumber' : IDL.Text,
+    'verifiedAt' : IDL.Int,
+    'nationalIdNumber' : IDL.Text,
+  });
   const Package = IDL.Record({
     'createdAt' : IDL.Int,
     'size' : IDL.Text,
@@ -432,6 +489,13 @@ export const idlFactory = ({ IDL }) => {
     'entries' : IDL.Vec(TrackingEntry),
     'currentStatus' : IDL.Text,
     'packageId' : IDL.Text,
+  });
+  const SenderVerification = IDL.Record({
+    'nationalIdDocUrl' : IDL.Opt(IDL.Text),
+    'senderPrincipal' : IDL.Principal,
+    'phoneNumber' : IDL.Text,
+    'verifiedAt' : IDL.Int,
+    'nationalIdNumber' : IDL.Text,
   });
   const UserProfile = IDL.Record({
     'hideBalance' : IDL.Bool,
@@ -503,9 +567,19 @@ export const idlFactory = ({ IDL }) => {
       ),
     'getNewsData' : IDL.Func([], [NewsData], []),
     'getRiderRoutes' : IDL.Func([], [IDL.Vec(RiderRoute)], ['query']),
+    'getRiderVerification' : IDL.Func(
+        [],
+        [IDL.Opt(RiderVerification)],
+        ['query'],
+      ),
     'getSenderPackages' : IDL.Func([], [IDL.Vec(Package)], ['query']),
     'getSenderRequests' : IDL.Func([], [IDL.Vec(DeliveryRequest)], ['query']),
     'getSenderTrackings' : IDL.Func([], [IDL.Vec(ShipmentTracking)], ['query']),
+    'getSenderVerification' : IDL.Func(
+        [],
+        [IDL.Opt(SenderVerification)],
+        ['query'],
+      ),
     'getTrackingByCode' : IDL.Func(
         [IDL.Text],
         [IDL.Opt(ShipmentTracking)],
@@ -571,6 +645,24 @@ export const idlFactory = ({ IDL }) => {
     'sendMoney' : IDL.Func(
         [IDL.Text, IDL.Float64, IDL.Text, IDL.Text],
         [SendMoneyResult],
+        [],
+      ),
+    'submitRiderVerification' : IDL.Func(
+        [
+          IDL.Text,
+          IDL.Text,
+          IDL.Text,
+          IDL.Text,
+          IDL.Opt(IDL.Text),
+          IDL.Opt(IDL.Text),
+          IDL.Opt(IDL.Text),
+        ],
+        [MoveResult],
+        [],
+      ),
+    'submitSenderVerification' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Opt(IDL.Text)],
+        [MoveResult],
         [],
       ),
     'updateAlert' : IDL.Func([IDL.Text, IDL.Bool], [IDL.Bool], []),

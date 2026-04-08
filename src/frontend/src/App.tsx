@@ -583,7 +583,7 @@ export default function App() {
 
         {/* Issue 35: overflow-y:auto only on the innermost scrollable container */}
         <div
-          className="flex-1 flex flex-col overflow-y-auto"
+          className="flex-1 min-h-0 flex flex-col overflow-y-auto"
           style={{ paddingTop: "60px", paddingBottom: "64px" }}
         >
           {screenContent}
@@ -643,8 +643,6 @@ export default function App() {
           style={{
             height: "calc(100vh - 60px)",
             overflowY: "auto",
-            position: "sticky",
-            top: "60px",
           }}
         >
           <div
@@ -652,10 +650,28 @@ export default function App() {
             style={{
               maxWidth: "1280px",
               padding: "0 40px",
-              minHeight: "100%",
+              minHeight: "calc(100% - 40px)",
             }}
           >
             {screenContent}
+          </div>
+          {/* Desktop footer — inside scroll container so it's reachable */}
+          <div
+            className="text-center py-3 text-[10px]"
+            style={{
+              color: "#3A3A3A",
+              borderTop: "1px solid #1A1A1A",
+            }}
+          >
+            © {new Date().getFullYear()} Stancard Space Ltd.{" "}
+            <a
+              href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(typeof window !== "undefined" ? window.location.hostname : "")}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "#4A4A4A", textDecoration: "underline" }}
+            >
+              Built with caffeine.ai
+            </a>
           </div>
         </div>
       </div>
@@ -671,26 +687,6 @@ export default function App() {
           target="_blank"
           rel="noopener noreferrer"
           className="pointer-events-auto"
-          style={{ color: "#4A4A4A", textDecoration: "underline" }}
-        >
-          Built with caffeine.ai
-        </a>
-      </div>
-
-      {/* Desktop footer */}
-      <div
-        className="hidden lg:block text-center py-3 text-[10px]"
-        style={{
-          color: "#3A3A3A",
-          marginLeft: "240px",
-          borderTop: "1px solid #1A1A1A",
-        }}
-      >
-        © {new Date().getFullYear()} Stancard Space Ltd.{" "}
-        <a
-          href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(typeof window !== "undefined" ? window.location.hostname : "")}`}
-          target="_blank"
-          rel="noopener noreferrer"
           style={{ color: "#4A4A4A", textDecoration: "underline" }}
         >
           Built with caffeine.ai

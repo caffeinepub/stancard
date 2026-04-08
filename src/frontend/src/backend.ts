@@ -95,6 +95,16 @@ export interface CryptoQuote {
     price: number;
     symbol: string;
 }
+export interface Alert {
+    id: string;
+    createdAt: bigint;
+    targetPrice: number;
+    isActive: boolean;
+    assetType: string;
+    isTriggered: boolean;
+    symbol: string;
+    condition: string;
+}
 export type VirtualAccountResult = {
     __kind__: "ok";
     ok: VirtualAccount;
@@ -110,6 +120,13 @@ export interface NewsData {
 export interface WalletBalance {
     currency: string;
     amount: number;
+}
+export interface SenderVerification {
+    nationalIdDocUrl?: string;
+    senderPrincipal: Principal;
+    phoneNumber: string;
+    verifiedAt: bigint;
+    nationalIdNumber: string;
 }
 export interface RiderRoute {
     vehicleType: string;
@@ -254,15 +271,16 @@ export interface UserProfile {
     preferredCurrency: string;
     language: string;
 }
-export interface Alert {
-    id: string;
-    createdAt: bigint;
-    targetPrice: number;
-    isActive: boolean;
-    assetType: string;
-    isTriggered: boolean;
-    symbol: string;
-    condition: string;
+export interface RiderVerification {
+    riderPrincipal: Principal;
+    vehicleRegDocUrl?: string;
+    licenseDocUrl?: string;
+    nationalIdDocUrl?: string;
+    licenseType: string;
+    licenseNumber: string;
+    vehicleRegistrationNumber: string;
+    verifiedAt: bigint;
+    nationalIdNumber: string;
 }
 export interface backendInterface {
     addAlert(assetType: string, symbol: string, condition: string, targetPrice: number): Promise<Alert>;
@@ -281,9 +299,11 @@ export interface backendInterface {
     getMatchedRiders(destinationCity: string, destinationCountry: string): Promise<Array<RiderRoute>>;
     getNewsData(): Promise<NewsData>;
     getRiderRoutes(): Promise<Array<RiderRoute>>;
+    getRiderVerification(): Promise<RiderVerification | null>;
     getSenderPackages(): Promise<Array<Package>>;
     getSenderRequests(): Promise<Array<DeliveryRequest>>;
     getSenderTrackings(): Promise<Array<ShipmentTracking>>;
+    getSenderVerification(): Promise<SenderVerification | null>;
     getTrackingByCode(code: string): Promise<ShipmentTracking | null>;
     getTrackingByRequestId(requestId: string): Promise<ShipmentTracking | null>;
     getUserProfile(): Promise<UserProfile | null>;
@@ -302,12 +322,14 @@ export interface backendInterface {
     saveUserProfile(displayName: string, preferredCurrency: string, language: string, hideBalance: boolean, hideTransactions: boolean): Promise<UserProfile>;
     sendDeliveryRequest(packageId: string, routeId: string, riderPrincipalText: string): Promise<MoveResult>;
     sendMoney(recipientPrincipal: string, amount: number, currency: string, dateStr: string): Promise<SendMoneyResult>;
+    submitRiderVerification(nationalIdNumber: string, licenseNumber: string, licenseType: string, vehicleRegistrationNumber: string, nationalIdDocUrl: string | null, licenseDocUrl: string | null, vehicleRegDocUrl: string | null): Promise<MoveResult>;
+    submitSenderVerification(phoneNumber: string, nationalIdNumber: string, nationalIdDocUrl: string | null): Promise<MoveResult>;
     updateAlert(id: string, isActive: boolean): Promise<boolean>;
     updateRoute(routeId: string, vehicleType: string, departureCity: string, departureCountry: string, destinationCity: string, destinationCountry: string, travelDate: string, cargoSpace: string): Promise<MoveResult>;
     updateShipmentStatus(requestId: string, newStatus: string): Promise<MoveResult>;
     updateWalletBalance(currency: string, newAmount: number): Promise<WalletBalance>;
 }
-import type { MoveResult as _MoveResult, SendMoneyResult as _SendMoneyResult, ShipmentTracking as _ShipmentTracking, UserProfile as _UserProfile, VirtualAccount as _VirtualAccount, VirtualAccountResult as _VirtualAccountResult } from "./declarations/backend.did.d.ts";
+import type { MoveResult as _MoveResult, RiderVerification as _RiderVerification, SendMoneyResult as _SendMoneyResult, SenderVerification as _SenderVerification, ShipmentTracking as _ShipmentTracking, UserProfile as _UserProfile, VirtualAccount as _VirtualAccount, VirtualAccountResult as _VirtualAccountResult } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
     async addAlert(arg0: string, arg1: string, arg2: string, arg3: number): Promise<Alert> {
@@ -534,6 +556,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async getRiderVerification(): Promise<RiderVerification | null> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getRiderVerification();
+                return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getRiderVerification();
+            return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
+        }
+    }
     async getSenderPackages(): Promise<Array<Package>> {
         if (this.processError) {
             try {
@@ -576,60 +612,74 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async getSenderVerification(): Promise<SenderVerification | null> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getSenderVerification();
+                return from_candid_opt_n9(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getSenderVerification();
+            return from_candid_opt_n9(this._uploadFile, this._downloadFile, result);
+        }
+    }
     async getTrackingByCode(arg0: string): Promise<ShipmentTracking | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getTrackingByCode(arg0);
-                return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n12(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getTrackingByCode(arg0);
-            return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n12(this._uploadFile, this._downloadFile, result);
         }
     }
     async getTrackingByRequestId(arg0: string): Promise<ShipmentTracking | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getTrackingByRequestId(arg0);
-                return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n12(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getTrackingByRequestId(arg0);
-            return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n12(this._uploadFile, this._downloadFile, result);
         }
     }
     async getUserProfile(): Promise<UserProfile | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getUserProfile();
-                return from_candid_opt_n6(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n13(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getUserProfile();
-            return from_candid_opt_n6(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n13(this._uploadFile, this._downloadFile, result);
         }
     }
     async getVirtualAccount(): Promise<VirtualAccount | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getVirtualAccount();
-                return from_candid_opt_n7(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n14(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getVirtualAccount();
-            return from_candid_opt_n7(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n14(this._uploadFile, this._downloadFile, result);
         }
     }
     async getWalletBalance(arg0: string): Promise<number> {
@@ -818,14 +868,42 @@ export class Backend implements backendInterface {
         if (this.processError) {
             try {
                 const result = await this.actor.sendMoney(arg0, arg1, arg2, arg3);
-                return from_candid_SendMoneyResult_n8(this._uploadFile, this._downloadFile, result);
+                return from_candid_SendMoneyResult_n15(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.sendMoney(arg0, arg1, arg2, arg3);
-            return from_candid_SendMoneyResult_n8(this._uploadFile, this._downloadFile, result);
+            return from_candid_SendMoneyResult_n15(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async submitRiderVerification(arg0: string, arg1: string, arg2: string, arg3: string, arg4: string | null, arg5: string | null, arg6: string | null): Promise<MoveResult> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.submitRiderVerification(arg0, arg1, arg2, arg3, to_candid_opt_n17(this._uploadFile, this._downloadFile, arg4), to_candid_opt_n17(this._uploadFile, this._downloadFile, arg5), to_candid_opt_n17(this._uploadFile, this._downloadFile, arg6));
+                return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.submitRiderVerification(arg0, arg1, arg2, arg3, to_candid_opt_n17(this._uploadFile, this._downloadFile, arg4), to_candid_opt_n17(this._uploadFile, this._downloadFile, arg5), to_candid_opt_n17(this._uploadFile, this._downloadFile, arg6));
+            return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async submitSenderVerification(arg0: string, arg1: string, arg2: string | null): Promise<MoveResult> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.submitSenderVerification(arg0, arg1, to_candid_opt_n17(this._uploadFile, this._downloadFile, arg2));
+                return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.submitSenderVerification(arg0, arg1, to_candid_opt_n17(this._uploadFile, this._downloadFile, arg2));
+            return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
         }
     }
     async updateAlert(arg0: string, arg1: boolean): Promise<boolean> {
@@ -888,20 +966,122 @@ export class Backend implements backendInterface {
 function from_candid_MoveResult_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _MoveResult): MoveResult {
     return from_candid_variant_n4(_uploadFile, _downloadFile, value);
 }
-function from_candid_SendMoneyResult_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _SendMoneyResult): SendMoneyResult {
-    return from_candid_variant_n9(_uploadFile, _downloadFile, value);
+function from_candid_RiderVerification_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _RiderVerification): RiderVerification {
+    return from_candid_record_n7(_uploadFile, _downloadFile, value);
+}
+function from_candid_SendMoneyResult_n15(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _SendMoneyResult): SendMoneyResult {
+    return from_candid_variant_n16(_uploadFile, _downloadFile, value);
+}
+function from_candid_SenderVerification_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _SenderVerification): SenderVerification {
+    return from_candid_record_n11(_uploadFile, _downloadFile, value);
 }
 function from_candid_VirtualAccountResult_n1(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _VirtualAccountResult): VirtualAccountResult {
     return from_candid_variant_n2(_uploadFile, _downloadFile, value);
 }
-function from_candid_opt_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_ShipmentTracking]): ShipmentTracking | null {
+function from_candid_opt_n12(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_ShipmentTracking]): ShipmentTracking | null {
     return value.length === 0 ? null : value[0];
 }
-function from_candid_opt_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_UserProfile]): UserProfile | null {
+function from_candid_opt_n13(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_UserProfile]): UserProfile | null {
     return value.length === 0 ? null : value[0];
 }
-function from_candid_opt_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_VirtualAccount]): VirtualAccount | null {
+function from_candid_opt_n14(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_VirtualAccount]): VirtualAccount | null {
     return value.length === 0 ? null : value[0];
+}
+function from_candid_opt_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_RiderVerification]): RiderVerification | null {
+    return value.length === 0 ? null : from_candid_RiderVerification_n6(_uploadFile, _downloadFile, value[0]);
+}
+function from_candid_opt_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [string]): string | null {
+    return value.length === 0 ? null : value[0];
+}
+function from_candid_opt_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_SenderVerification]): SenderVerification | null {
+    return value.length === 0 ? null : from_candid_SenderVerification_n10(_uploadFile, _downloadFile, value[0]);
+}
+function from_candid_record_n11(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    nationalIdDocUrl: [] | [string];
+    senderPrincipal: Principal;
+    phoneNumber: string;
+    verifiedAt: bigint;
+    nationalIdNumber: string;
+}): {
+    nationalIdDocUrl?: string;
+    senderPrincipal: Principal;
+    phoneNumber: string;
+    verifiedAt: bigint;
+    nationalIdNumber: string;
+} {
+    return {
+        nationalIdDocUrl: record_opt_to_undefined(from_candid_opt_n8(_uploadFile, _downloadFile, value.nationalIdDocUrl)),
+        senderPrincipal: value.senderPrincipal,
+        phoneNumber: value.phoneNumber,
+        verifiedAt: value.verifiedAt,
+        nationalIdNumber: value.nationalIdNumber
+    };
+}
+function from_candid_record_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    riderPrincipal: Principal;
+    vehicleRegDocUrl: [] | [string];
+    licenseDocUrl: [] | [string];
+    nationalIdDocUrl: [] | [string];
+    licenseType: string;
+    licenseNumber: string;
+    vehicleRegistrationNumber: string;
+    verifiedAt: bigint;
+    nationalIdNumber: string;
+}): {
+    riderPrincipal: Principal;
+    vehicleRegDocUrl?: string;
+    licenseDocUrl?: string;
+    nationalIdDocUrl?: string;
+    licenseType: string;
+    licenseNumber: string;
+    vehicleRegistrationNumber: string;
+    verifiedAt: bigint;
+    nationalIdNumber: string;
+} {
+    return {
+        riderPrincipal: value.riderPrincipal,
+        vehicleRegDocUrl: record_opt_to_undefined(from_candid_opt_n8(_uploadFile, _downloadFile, value.vehicleRegDocUrl)),
+        licenseDocUrl: record_opt_to_undefined(from_candid_opt_n8(_uploadFile, _downloadFile, value.licenseDocUrl)),
+        nationalIdDocUrl: record_opt_to_undefined(from_candid_opt_n8(_uploadFile, _downloadFile, value.nationalIdDocUrl)),
+        licenseType: value.licenseType,
+        licenseNumber: value.licenseNumber,
+        vehicleRegistrationNumber: value.vehicleRegistrationNumber,
+        verifiedAt: value.verifiedAt,
+        nationalIdNumber: value.nationalIdNumber
+    };
+}
+function from_candid_variant_n16(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    ok: {
+        txId: string;
+        reference: string;
+        currency: string;
+        timestamp: string;
+        amount: number;
+        recipientId: string;
+    };
+} | {
+    err: string;
+}): {
+    __kind__: "ok";
+    ok: {
+        txId: string;
+        reference: string;
+        currency: string;
+        timestamp: string;
+        amount: number;
+        recipientId: string;
+    };
+} | {
+    __kind__: "err";
+    err: string;
+} {
+    return "ok" in value ? {
+        __kind__: "ok",
+        ok: value.ok
+    } : "err" in value ? {
+        __kind__: "err",
+        err: value.err
+    } : value;
 }
 function from_candid_variant_n2(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     ok: _VirtualAccount;
@@ -941,38 +1121,8 @@ function from_candid_variant_n4(_uploadFile: (file: ExternalBlob) => Promise<Uin
         err: value.err
     } : value;
 }
-function from_candid_variant_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
-    ok: {
-        txId: string;
-        reference: string;
-        currency: string;
-        timestamp: string;
-        amount: number;
-        recipientId: string;
-    };
-} | {
-    err: string;
-}): {
-    __kind__: "ok";
-    ok: {
-        txId: string;
-        reference: string;
-        currency: string;
-        timestamp: string;
-        amount: number;
-        recipientId: string;
-    };
-} | {
-    __kind__: "err";
-    err: string;
-} {
-    return "ok" in value ? {
-        __kind__: "ok",
-        ok: value.ok
-    } : "err" in value ? {
-        __kind__: "err",
-        err: value.err
-    } : value;
+function to_candid_opt_n17(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: string | null): [] | [string] {
+    return value === null ? candid_none() : candid_some(value);
 }
 export interface CreateActorOptions {
     agent?: Agent;

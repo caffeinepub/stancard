@@ -55,6 +55,26 @@ type RiderRoute__942718174 =
     travelDate : Text;
     vehicleType : Text
   };
+type RiderVerification__882988878 =
+  {
+    licenseDocUrl : ?Text;
+    licenseNumber : Text;
+    licenseType : Text;
+    nationalIdDocUrl : ?Text;
+    nationalIdNumber : Text;
+    riderPrincipal : Principal;
+    vehicleRegDocUrl : ?Text;
+    vehicleRegistrationNumber : Text;
+    verifiedAt : Int
+  };
+type SenderVerification__265161284 =
+  {
+    nationalIdDocUrl : ?Text;
+    nationalIdNumber : Text;
+    phoneNumber : Text;
+    senderPrincipal : Principal;
+    verifiedAt : Int
+  };
 type ShipmentTracking__400532964 =
   {
     currentStatus : Text;
@@ -112,7 +132,17 @@ actor {
       var root : Node__46230540<Principal, [RiderRoute__942718174]>;
       var size : Nat__490723111
     };
+  stable riderVerifications :
+    {
+      var root : Node__46230540<Principal, RiderVerification__882988878>;
+      var size : Nat__490723111
+    };
   stable var routeCounter : Nat;
+  stable senderVerifications :
+    {
+      var root : Node__46230540<Principal, SenderVerification__265161284>;
+      var size : Nat__490723111
+    };
   stable var shipmentTrackings : [ShipmentTracking__400532964];
   stable var trackingCounter : Nat;
   stable userProfiles :

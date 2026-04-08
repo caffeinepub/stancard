@@ -13,6 +13,16 @@ export interface CryptoQuote {
     price: number;
     symbol: string;
 }
+export interface Alert {
+    id: string;
+    createdAt: bigint;
+    targetPrice: number;
+    isActive: boolean;
+    assetType: string;
+    isTriggered: boolean;
+    symbol: string;
+    condition: string;
+}
 export type VirtualAccountResult = {
     __kind__: "ok";
     ok: VirtualAccount;
@@ -28,6 +38,13 @@ export interface NewsData {
 export interface WalletBalance {
     currency: string;
     amount: number;
+}
+export interface SenderVerification {
+    nationalIdDocUrl?: string;
+    senderPrincipal: Principal;
+    phoneNumber: string;
+    verifiedAt: bigint;
+    nationalIdNumber: string;
 }
 export interface RiderRoute {
     vehicleType: string;
@@ -172,15 +189,16 @@ export interface UserProfile {
     preferredCurrency: string;
     language: string;
 }
-export interface Alert {
-    id: string;
-    createdAt: bigint;
-    targetPrice: number;
-    isActive: boolean;
-    assetType: string;
-    isTriggered: boolean;
-    symbol: string;
-    condition: string;
+export interface RiderVerification {
+    riderPrincipal: Principal;
+    vehicleRegDocUrl?: string;
+    licenseDocUrl?: string;
+    nationalIdDocUrl?: string;
+    licenseType: string;
+    licenseNumber: string;
+    vehicleRegistrationNumber: string;
+    verifiedAt: bigint;
+    nationalIdNumber: string;
 }
 export interface backendInterface {
     addAlert(assetType: string, symbol: string, condition: string, targetPrice: number): Promise<Alert>;
@@ -199,9 +217,11 @@ export interface backendInterface {
     getMatchedRiders(destinationCity: string, destinationCountry: string): Promise<Array<RiderRoute>>;
     getNewsData(): Promise<NewsData>;
     getRiderRoutes(): Promise<Array<RiderRoute>>;
+    getRiderVerification(): Promise<RiderVerification | null>;
     getSenderPackages(): Promise<Array<Package>>;
     getSenderRequests(): Promise<Array<DeliveryRequest>>;
     getSenderTrackings(): Promise<Array<ShipmentTracking>>;
+    getSenderVerification(): Promise<SenderVerification | null>;
     getTrackingByCode(code: string): Promise<ShipmentTracking | null>;
     getTrackingByRequestId(requestId: string): Promise<ShipmentTracking | null>;
     getUserProfile(): Promise<UserProfile | null>;
@@ -220,6 +240,8 @@ export interface backendInterface {
     saveUserProfile(displayName: string, preferredCurrency: string, language: string, hideBalance: boolean, hideTransactions: boolean): Promise<UserProfile>;
     sendDeliveryRequest(packageId: string, routeId: string, riderPrincipalText: string): Promise<MoveResult>;
     sendMoney(recipientPrincipal: string, amount: number, currency: string, dateStr: string): Promise<SendMoneyResult>;
+    submitRiderVerification(nationalIdNumber: string, licenseNumber: string, licenseType: string, vehicleRegistrationNumber: string, nationalIdDocUrl: string | null, licenseDocUrl: string | null, vehicleRegDocUrl: string | null): Promise<MoveResult>;
+    submitSenderVerification(phoneNumber: string, nationalIdNumber: string, nationalIdDocUrl: string | null): Promise<MoveResult>;
     updateAlert(id: string, isActive: boolean): Promise<boolean>;
     updateRoute(routeId: string, vehicleType: string, departureCity: string, departureCountry: string, destinationCity: string, destinationCountry: string, travelDate: string, cargoSpace: string): Promise<MoveResult>;
     updateShipmentStatus(requestId: string, newStatus: string): Promise<MoveResult>;

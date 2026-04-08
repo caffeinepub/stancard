@@ -61,6 +61,14 @@ type ShipmentTracking =
    requestId: text;
    trackingCode: text;
  };
+type SenderVerification = 
+ record {
+   nationalIdDocUrl: opt text;
+   nationalIdNumber: text;
+   phoneNumber: text;
+   senderPrincipal: principal;
+   verifiedAt: int;
+ };
 type SendMoneyResult = 
  variant {
    err: text;
@@ -73,6 +81,18 @@ type SendMoneyResult =
       timestamp: text;
       txId: text;
     };
+ };
+type RiderVerification = 
+ record {
+   licenseDocUrl: opt text;
+   licenseNumber: text;
+   licenseType: text;
+   nationalIdDocUrl: opt text;
+   nationalIdNumber: text;
+   riderPrincipal: principal;
+   vehicleRegDocUrl: opt text;
+   vehicleRegistrationNumber: text;
+   verifiedAt: int;
  };
 type RiderRoute = 
  record {
@@ -208,9 +228,11 @@ service : {
    (vec RiderRoute) query;
   getNewsData: () -> (NewsData);
   getRiderRoutes: () -> (vec RiderRoute) query;
+  getRiderVerification: () -> (opt RiderVerification) query;
   getSenderPackages: () -> (vec Package) query;
   getSenderRequests: () -> (vec DeliveryRequest) query;
   getSenderTrackings: () -> (vec ShipmentTracking) query;
+  getSenderVerification: () -> (opt SenderVerification) query;
   getTrackingByCode: (code: text) -> (opt ShipmentTracking) query;
   getTrackingByRequestId: (requestId: text) -> (opt ShipmentTracking) query;
   getUserProfile: () -> (opt UserProfile) query;
@@ -238,6 +260,12 @@ service : {
    text) -> (MoveResult);
   sendMoney: (recipientPrincipal: text, amount: float64, currency: text,
    dateStr: text) -> (SendMoneyResult);
+  submitRiderVerification: (nationalIdNumber: text, licenseNumber: text,
+   licenseType: text, vehicleRegistrationNumber: text, nationalIdDocUrl:
+   opt text, licenseDocUrl: opt text, vehicleRegDocUrl: opt text) ->
+   (MoveResult);
+  submitSenderVerification: (phoneNumber: text, nationalIdNumber: text,
+   nationalIdDocUrl: opt text) -> (MoveResult);
   updateAlert: (id: text, isActive: bool) -> (bool);
   updateRoute: (routeId: text, vehicleType: text, departureCity: text,
    departureCountry: text, destinationCity: text, destinationCountry: 

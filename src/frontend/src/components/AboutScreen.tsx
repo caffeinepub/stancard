@@ -7,7 +7,7 @@ interface AboutScreenProps {
 export function AboutScreen({ onBack }: AboutScreenProps) {
   return (
     <div
-      className="flex flex-col h-full"
+      className="flex flex-col flex-1 min-h-0"
       style={{ background: "#0A0A0A" }}
       data-ocid="about.page"
     >

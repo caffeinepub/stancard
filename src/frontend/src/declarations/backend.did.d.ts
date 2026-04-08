@@ -106,6 +106,17 @@ export interface RiderRoute {
   'destinationCountry' : string,
   'cargoSpace' : string,
 }
+export interface RiderVerification {
+  'riderPrincipal' : Principal,
+  'vehicleRegDocUrl' : [] | [string],
+  'licenseDocUrl' : [] | [string],
+  'nationalIdDocUrl' : [] | [string],
+  'licenseType' : string,
+  'licenseNumber' : string,
+  'vehicleRegistrationNumber' : string,
+  'verifiedAt' : bigint,
+  'nationalIdNumber' : string,
+}
 export type SendMoneyResult = {
     'ok' : {
       'txId' : string,
@@ -117,6 +128,13 @@ export type SendMoneyResult = {
     }
   } |
   { 'err' : string };
+export interface SenderVerification {
+  'nationalIdDocUrl' : [] | [string],
+  'senderPrincipal' : Principal,
+  'phoneNumber' : string,
+  'verifiedAt' : bigint,
+  'nationalIdNumber' : string,
+}
 export interface ShipmentTracking {
   'trackingCode' : string,
   'requestId' : string,
@@ -186,9 +204,11 @@ export interface _SERVICE {
   'getMatchedRiders' : ActorMethod<[string, string], Array<RiderRoute>>,
   'getNewsData' : ActorMethod<[], NewsData>,
   'getRiderRoutes' : ActorMethod<[], Array<RiderRoute>>,
+  'getRiderVerification' : ActorMethod<[], [] | [RiderVerification]>,
   'getSenderPackages' : ActorMethod<[], Array<Package>>,
   'getSenderRequests' : ActorMethod<[], Array<DeliveryRequest>>,
   'getSenderTrackings' : ActorMethod<[], Array<ShipmentTracking>>,
+  'getSenderVerification' : ActorMethod<[], [] | [SenderVerification]>,
   'getTrackingByCode' : ActorMethod<[string], [] | [ShipmentTracking]>,
   'getTrackingByRequestId' : ActorMethod<[string], [] | [ShipmentTracking]>,
   'getUserProfile' : ActorMethod<[], [] | [UserProfile]>,
@@ -219,6 +239,22 @@ export interface _SERVICE {
   >,
   'sendDeliveryRequest' : ActorMethod<[string, string, string], MoveResult>,
   'sendMoney' : ActorMethod<[string, number, string, string], SendMoneyResult>,
+  'submitRiderVerification' : ActorMethod<
+    [
+      string,
+      string,
+      string,
+      string,
+      [] | [string],
+      [] | [string],
+      [] | [string],
+    ],
+    MoveResult
+  >,
+  'submitSenderVerification' : ActorMethod<
+    [string, string, [] | [string]],
+    MoveResult
+  >,
   'updateAlert' : ActorMethod<[string, boolean], boolean>,
   'updateRoute' : ActorMethod<
     [string, string, string, string, string, string, string, string],

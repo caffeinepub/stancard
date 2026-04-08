@@ -1295,6 +1295,26 @@ persistent actor {
     trackingEntries : [TrackingEntry];
   };
 
+  public type RiderVerification = {
+    riderPrincipal : Principal;
+    nationalIdNumber : Text;
+    licenseNumber : Text;
+    licenseType : Text;
+    vehicleRegistrationNumber : Text;
+    nationalIdDocUrl : ?Text;
+    licenseDocUrl : ?Text;
+    vehicleRegDocUrl : ?Text;
+    verifiedAt : Int;
+  };
+
+  public type SenderVerification = {
+    senderPrincipal : Principal;
+    phoneNumber : Text;
+    nationalIdNumber : Text;
+    nationalIdDocUrl : ?Text;
+    verifiedAt : Int;
+  };
+
   // Persistent state
   let riderRoutes : Map.Map<Principal, [RiderRoute]> = Map.empty<Principal, [RiderRoute]>();
   let packages : Map.Map<Principal, [Package]> = Map.empty<Principal, [Package]>();
@@ -1306,6 +1326,10 @@ persistent actor {
   // ─── Tracking State ──────────────────────────────────────────────────────
   var shipmentTrackings : [ShipmentTracking] = [];
   var trackingCounter : Nat = 0;
+
+  // ─── Verification State ──────────────────────────────────────────────────
+  let riderVerifications : Map.Map<Principal, RiderVerification> = Map.empty<Principal, RiderVerification>();
+  let senderVerifications : Map.Map<Principal, SenderVerification> = Map.empty<Principal, SenderVerification>();
 
   // Zero-pad a Nat to 8 digits for tracking codes
   func zeroPad8(n : Nat) : Text {
@@ -1774,6 +1798,68 @@ persistent actor {
     walletTransactions.add(msg.caller, [newTx].concat(existingTxs));
 
     #ok(requestId)
+  };
+
+  // ─── Identity Verification Functions ─────────────────────────────────────
+
+  // Submit or update rider verification record
+  public shared (msg) func submitRiderVerification(
+    nationalIdNumber : Text,
+    licenseNumber : Text,
+    licenseType : Text,
+    vehicleRegistrationNumber : Text,
+    nationalIdDocUrl : ?Text,
+    licenseDocUrl : ?Text,
+    vehicleRegDocUrl : ?Text
+  ) : async MoveResult {
+    if (msg.caller.isAnonymous()) {
+      return #err("You must be signed in to submit verification.");
+    };
+    let record : RiderVerification = {
+      riderPrincipal = msg.caller;
+      nationalIdNumber;
+      licenseNumber;
+      licenseType;
+      vehicleRegistrationNumber;
+      nationalIdDocUrl;
+      licenseDocUrl;
+      vehicleRegDocUrl;
+      verifiedAt = Time.now();
+    };
+    riderVerifications.add(msg.caller, record);
+    #ok("Verification saved")
+  };
+
+  // Get caller's rider verification record
+  public query (msg) func getRiderVerification() : async ?RiderVerification {
+    if (msg.caller.isAnonymous()) { return null };
+    riderVerifications.get(msg.caller)
+  };
+
+  // Submit or update sender verification record
+  public shared (msg) func submitSenderVerification(
+    phoneNumber : Text,
+    nationalIdNumber : Text,
+    nationalIdDocUrl : ?Text
+  ) : async MoveResult {
+    if (msg.caller.isAnonymous()) {
+      return #err("You must be signed in to submit verification.");
+    };
+    let record : SenderVerification = {
+      senderPrincipal = msg.caller;
+      phoneNumber;
+      nationalIdNumber;
+      nationalIdDocUrl;
+      verifiedAt = Time.now();
+    };
+    senderVerifications.add(msg.caller, record);
+    #ok("Verification saved")
+  };
+
+  // Get caller's sender verification record
+  public query (msg) func getSenderVerification() : async ?SenderVerification {
+    if (msg.caller.isAnonymous()) { return null };
+    senderVerifications.get(msg.caller)
   };
 
 }

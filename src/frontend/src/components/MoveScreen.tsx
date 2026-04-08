@@ -10,8 +10,10 @@ import {
   Plane,
   Plus,
   Route,
+  ShieldCheck,
   Trash2,
   Truck,
+  Upload,
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -99,6 +101,24 @@ interface ShipmentTracking {
   currentStatus: string;
 }
 
+interface RiderVerificationRecord {
+  nationalIdNumber: string;
+  licenseNumber: string;
+  licenseType: string;
+  vehicleRegistrationNumber: string;
+  nationalIdDocUrl?: string;
+  licenseDocUrl?: string;
+  vehicleRegDocUrl?: string;
+  verifiedAt: bigint;
+}
+
+interface SenderVerificationRecord {
+  phoneNumber: string;
+  nationalIdNumber: string;
+  nationalIdDocUrl?: string;
+  verifiedAt: bigint;
+}
+
 interface MoveActor {
   registerRoute: (
     vehicleType: string,
@@ -174,6 +194,23 @@ interface MoveActor {
     method: string,
     dateStr: string,
   ) => Promise<{ ok: string } | { err: string }>;
+  // Verification methods
+  submitRiderVerification: (
+    nationalIdNumber: string,
+    licenseNumber: string,
+    licenseType: string,
+    vehicleRegistrationNumber: string,
+    nationalIdDocUrl: string | null,
+    licenseDocUrl: string | null,
+    vehicleRegDocUrl: string | null,
+  ) => Promise<{ ok: string } | { err: string }>;
+  getRiderVerification: () => Promise<RiderVerificationRecord | null>;
+  submitSenderVerification: (
+    phoneNumber: string,
+    nationalIdNumber: string,
+    nationalIdDocUrl: string | null,
+  ) => Promise<{ ok: string } | { err: string }>;
+  getSenderVerification: () => Promise<SenderVerificationRecord | null>;
 }
 
 interface MoveScreenProps {
@@ -592,6 +629,817 @@ function LocationSearchInput({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Verification helpers ────────────────────────────────────────────────────
+
+function licenseLabel(vehicleType: string): string {
+  switch (vehicleType.toLowerCase()) {
+    case "truck":
+      return "Commercial Vehicle License Number";
+    case "plane":
+      return "Pilot's License Number";
+    default:
+      return "Driver's License Number";
+  }
+}
+
+function licenseTypeName(vehicleType: string): string {
+  switch (vehicleType.toLowerCase()) {
+    case "truck":
+      return "Commercial Vehicle License";
+    case "plane":
+      return "Pilot's License";
+    default:
+      return "Driver's License";
+  }
+}
+
+// ─── Document Upload Field ───────────────────────────────────────────────────
+
+interface DocUploadState {
+  url: string | null;
+  uploading: boolean;
+  error: string | null;
+}
+
+function DocUploadField({
+  label,
+  state,
+  onChange,
+  ocid,
+}: {
+  label: string;
+  state: DocUploadState;
+  onChange: (next: DocUploadState) => void;
+  ocid: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      onChange({
+        url: null,
+        uploading: false,
+        error: "Only image files are supported",
+      });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      onChange({
+        url: null,
+        uploading: false,
+        error: "File must be under 5MB",
+      });
+      return;
+    }
+    onChange({ url: null, uploading: true, error: null });
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      onChange({ url: dataUrl, uploading: false, error: null });
+    } catch {
+      onChange({
+        url: null,
+        uploading: false,
+        error: "Upload failed — you can continue without the document",
+      });
+    } finally {
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  return (
+    <div>
+      <p style={{ color: "#9A9A9A", fontSize: 12, marginBottom: 6 }}>{label}</p>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={handleFile}
+        data-ocid={ocid}
+      />
+      {state.url ? (
+        <div style={{ position: "relative", display: "inline-block" }}>
+          <img
+            src={state.url}
+            alt={label}
+            style={{
+              width: 80,
+              height: 60,
+              objectFit: "cover",
+              borderRadius: 8,
+              border: "1px solid rgba(212,175,55,0.4)",
+            }}
+          />
+          <button
+            type="button"
+            onClick={() =>
+              onChange({ url: null, uploading: false, error: null })
+            }
+            style={{
+              position: "absolute",
+              top: -6,
+              right: -6,
+              background: "#F87171",
+              border: "none",
+              borderRadius: "50%",
+              width: 18,
+              height: 18,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              color: "#fff",
+              fontSize: 10,
+            }}
+            aria-label="Remove document"
+          >
+            ×
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={state.uploading}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            background: "#0D0D0D",
+            border: "1px dashed #2A2A2A",
+            borderRadius: 8,
+            padding: "8px 14px",
+            color: state.uploading ? "#D4AF37" : "#6C6C6C",
+            fontSize: 12,
+            cursor: state.uploading ? "not-allowed" : "pointer",
+          }}
+        >
+          {state.uploading ? (
+            <>
+              <span
+                style={{
+                  width: 12,
+                  height: 12,
+                  border: "2px solid rgba(212,175,55,0.3)",
+                  borderTopColor: "#D4AF37",
+                  borderRadius: "50%",
+                  animation: "spin 0.7s linear infinite",
+                  flexShrink: 0,
+                  display: "inline-block",
+                }}
+              />{" "}
+              Uploading…
+            </>
+          ) : (
+            <>
+              <Upload size={13} /> Upload photo
+            </>
+          )}
+        </button>
+      )}
+      {state.error && (
+        <p style={{ color: "#F87171", fontSize: 11, marginTop: 4 }}>
+          {state.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Rider Verification Modal ─────────────────────────────────────────────────
+
+function RiderVerificationModal({
+  open,
+  onClose,
+  onVerified,
+  actor,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onVerified: () => void;
+  actor: MoveActor;
+}) {
+  const [vehicleType, setVehicleType] = useState("Car");
+  const [nationalId, setNationalId] = useState("");
+  const [licenseNum, setLicenseNum] = useState("");
+  const [vehicleReg, setVehicleReg] = useState("");
+  const [idDoc, setIdDoc] = useState<DocUploadState>({
+    url: null,
+    uploading: false,
+    error: null,
+  });
+  const [licDoc, setLicDoc] = useState<DocUploadState>({
+    url: null,
+    uploading: false,
+    error: null,
+  });
+  const [regDoc, setRegDoc] = useState<DocUploadState>({
+    url: null,
+    uploading: false,
+    error: null,
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setVehicleType("Car");
+      setNationalId("");
+      setLicenseNum("");
+      setVehicleReg("");
+      setIdDoc({ url: null, uploading: false, error: null });
+      setLicDoc({ url: null, uploading: false, error: null });
+      setRegDoc({ url: null, uploading: false, error: null });
+      setSubmitting(false);
+      setError(null);
+    }
+  }, [open]);
+
+  const anyUploading = idDoc.uploading || licDoc.uploading || regDoc.uploading;
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (anyUploading) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      const result = await Promise.race([
+        actor.submitRiderVerification(
+          nationalId.trim(),
+          licenseNum.trim(),
+          licenseTypeName(vehicleType),
+          vehicleReg.trim(),
+          idDoc.url ?? null,
+          licDoc.url ?? null,
+          regDoc.url ?? null,
+        ),
+        new Promise<{ err: string }>((resolve) =>
+          setTimeout(
+            () => resolve({ err: "Request timed out. Please try again." }),
+            8000,
+          ),
+        ),
+      ]);
+      if ("err" in result) {
+        setError(result.err);
+      } else {
+        toast.success("Verification submitted successfully!");
+        onVerified();
+      }
+    } catch {
+      setError("Verification failed. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!open) return null;
+
+  return (
+    <div
+      style={OVERLAY}
+      onClick={onClose}
+      onKeyDown={(e) => e.key === "Escape" && onClose()}
+      role="presentation"
+      data-ocid="move.rider_verification_modal"
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96, y: 16 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 16 }}
+        transition={{ duration: 0.22 }}
+        style={{ ...MODAL_CARD, maxWidth: 480 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 20,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                background: "rgba(212,175,55,0.1)",
+                border: "1px solid rgba(212,175,55,0.3)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <ShieldCheck size={18} style={{ color: "#D4AF37" }} />
+            </div>
+            <div>
+              <h3
+                style={{
+                  color: "#E8E8E8",
+                  fontSize: 17,
+                  fontWeight: 700,
+                  margin: 0,
+                }}
+              >
+                Rider Verification
+              </h3>
+              <p style={{ color: "#6C6C6C", fontSize: 12, margin: "2px 0 0" }}>
+                One-time verification required to register routes
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "#6C6C6C",
+              padding: 4,
+            }}
+            data-ocid="move.rider_verification_modal.close"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <form
+          onSubmit={handleSubmit}
+          style={{ display: "flex", flexDirection: "column", gap: 16 }}
+        >
+          <div>
+            <label
+              htmlFor="rv-vehicle-type"
+              style={{
+                color: "#D4AF37",
+                fontSize: 12,
+                fontWeight: 600,
+                display: "block",
+                marginBottom: 6,
+              }}
+            >
+              Vehicle Type
+            </label>
+            <select
+              id="rv-vehicle-type"
+              value={vehicleType}
+              onChange={(e) => setVehicleType(e.target.value)}
+              style={INPUT_STYLE}
+              data-ocid="move.rider_verification_modal.vehicle_type"
+            >
+              {["Car", "Truck", "Plane", "Bicycle", "Ebike"].map((v) => (
+                <option key={v} value={v} style={{ background: "#111" }}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label
+              htmlFor="rv-national-id"
+              style={{
+                color: "#D4AF37",
+                fontSize: 12,
+                fontWeight: 600,
+                display: "block",
+                marginBottom: 6,
+              }}
+            >
+              National ID Number *
+            </label>
+            <input
+              id="rv-national-id"
+              type="text"
+              value={nationalId}
+              onChange={(e) => setNationalId(e.target.value)}
+              placeholder="Enter your national ID number"
+              required
+              style={INPUT_STYLE}
+              data-ocid="move.rider_verification_modal.national_id"
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="rv-license-num"
+              style={{
+                color: "#D4AF37",
+                fontSize: 12,
+                fontWeight: 600,
+                display: "block",
+                marginBottom: 6,
+              }}
+            >
+              {licenseLabel(vehicleType)} *
+            </label>
+            <input
+              id="rv-license-num"
+              type="text"
+              value={licenseNum}
+              onChange={(e) => setLicenseNum(e.target.value)}
+              placeholder="Enter your license number"
+              required
+              style={INPUT_STYLE}
+              data-ocid="move.rider_verification_modal.license_number"
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="rv-vehicle-reg"
+              style={{
+                color: "#D4AF37",
+                fontSize: 12,
+                fontWeight: 600,
+                display: "block",
+                marginBottom: 6,
+              }}
+            >
+              Vehicle Registration Number *
+            </label>
+            <input
+              id="rv-vehicle-reg"
+              type="text"
+              value={vehicleReg}
+              onChange={(e) => setVehicleReg(e.target.value)}
+              placeholder="Enter your vehicle registration number"
+              required
+              style={INPUT_STYLE}
+              data-ocid="move.rider_verification_modal.vehicle_reg"
+            />
+          </div>
+          <div>
+            <p style={{ ...SECTION_LABEL, marginBottom: 14 }}>
+              Upload Supporting Documents{" "}
+              <span
+                style={{
+                  color: "#4A4A4A",
+                  fontWeight: 400,
+                  textTransform: "none",
+                  fontSize: 11,
+                  letterSpacing: 0,
+                }}
+              >
+                (optional)
+              </span>
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <DocUploadField
+                label="Upload ID Photo"
+                state={idDoc}
+                onChange={setIdDoc}
+                ocid="move.rider_verification_modal.id_doc"
+              />
+              <DocUploadField
+                label="Upload License Photo"
+                state={licDoc}
+                onChange={setLicDoc}
+                ocid="move.rider_verification_modal.lic_doc"
+              />
+              <DocUploadField
+                label="Upload Vehicle Registration Photo"
+                state={regDoc}
+                onChange={setRegDoc}
+                ocid="move.rider_verification_modal.reg_doc"
+              />
+            </div>
+          </div>
+          {error && (
+            <div
+              style={{
+                background: "rgba(248,113,113,0.08)",
+                border: "1px solid rgba(248,113,113,0.3)",
+                borderRadius: 8,
+                padding: "10px 14px",
+                color: "#F87171",
+                fontSize: 13,
+              }}
+              data-ocid="move.rider_verification_modal.error"
+            >
+              {error}
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={submitting || anyUploading}
+            style={{
+              ...GOLD_BTN,
+              width: "100%",
+              justifyContent: "center",
+              padding: "12px 18px",
+              opacity: submitting || anyUploading ? 0.7 : 1,
+              cursor: submitting || anyUploading ? "not-allowed" : "pointer",
+              marginTop: 4,
+            }}
+            data-ocid="move.rider_verification_modal.submit"
+          >
+            {submitting ? (
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span
+                  style={{
+                    width: 14,
+                    height: 14,
+                    border: "2px solid rgba(0,0,0,0.3)",
+                    borderTopColor: "#111",
+                    borderRadius: "50%",
+                    animation: "spin 0.7s linear infinite",
+                    display: "inline-block",
+                  }}
+                />
+                Verifying…
+              </span>
+            ) : anyUploading ? (
+              "Uploading document…"
+            ) : (
+              <>
+                <ShieldCheck size={15} /> Verify & Continue
+              </>
+            )}
+          </button>
+        </form>
+      </motion.div>
+    </div>
+  );
+}
+
+// ─── Sender Verification Modal ────────────────────────────────────────────────
+
+function SenderVerificationModal({
+  open,
+  onClose,
+  onVerified,
+  actor,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onVerified: () => void;
+  actor: MoveActor;
+}) {
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [nationalId, setNationalId] = useState("");
+  const [idDoc, setIdDoc] = useState<DocUploadState>({
+    url: null,
+    uploading: false,
+    error: null,
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setPhoneNumber("");
+      setNationalId("");
+      setIdDoc({ url: null, uploading: false, error: null });
+      setSubmitting(false);
+      setError(null);
+    }
+  }, [open]);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (idDoc.uploading) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      const result = await Promise.race([
+        actor.submitSenderVerification(
+          phoneNumber.trim(),
+          nationalId.trim(),
+          idDoc.url ?? null,
+        ),
+        new Promise<{ err: string }>((resolve) =>
+          setTimeout(
+            () => resolve({ err: "Request timed out. Please try again." }),
+            8000,
+          ),
+        ),
+      ]);
+      if ("err" in result) {
+        setError(result.err);
+      } else {
+        toast.success("Verification submitted successfully!");
+        onVerified();
+      }
+    } catch {
+      setError("Verification failed. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!open) return null;
+
+  return (
+    <div
+      style={OVERLAY}
+      onClick={onClose}
+      onKeyDown={(e) => e.key === "Escape" && onClose()}
+      role="presentation"
+      data-ocid="move.sender_verification_modal"
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96, y: 16 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 16 }}
+        transition={{ duration: 0.22 }}
+        style={{ ...MODAL_CARD, maxWidth: 480 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 20,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                background: "rgba(212,175,55,0.1)",
+                border: "1px solid rgba(212,175,55,0.3)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <ShieldCheck size={18} style={{ color: "#D4AF37" }} />
+            </div>
+            <div>
+              <h3
+                style={{
+                  color: "#E8E8E8",
+                  fontSize: 17,
+                  fontWeight: 700,
+                  margin: 0,
+                }}
+              >
+                Sender Verification
+              </h3>
+              <p style={{ color: "#6C6C6C", fontSize: 12, margin: "2px 0 0" }}>
+                One-time verification required to post packages
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "#6C6C6C",
+              padding: 4,
+            }}
+            data-ocid="move.sender_verification_modal.close"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <form
+          onSubmit={handleSubmit}
+          style={{ display: "flex", flexDirection: "column", gap: 16 }}
+        >
+          <div>
+            <label
+              htmlFor="sv-phone"
+              style={{
+                color: "#D4AF37",
+                fontSize: 12,
+                fontWeight: 600,
+                display: "block",
+                marginBottom: 6,
+              }}
+            >
+              Phone Number *
+            </label>
+            <input
+              id="sv-phone"
+              type="tel"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              placeholder="+234 800 000 0000"
+              required
+              style={INPUT_STYLE}
+              data-ocid="move.sender_verification_modal.phone"
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="sv-national-id"
+              style={{
+                color: "#D4AF37",
+                fontSize: 12,
+                fontWeight: 600,
+                display: "block",
+                marginBottom: 6,
+              }}
+            >
+              National ID Number *
+            </label>
+            <input
+              id="sv-national-id"
+              type="text"
+              value={nationalId}
+              onChange={(e) => setNationalId(e.target.value)}
+              placeholder="Enter your national ID number"
+              required
+              style={INPUT_STYLE}
+              data-ocid="move.sender_verification_modal.national_id"
+            />
+          </div>
+          <div>
+            <p style={{ ...SECTION_LABEL, marginBottom: 14 }}>
+              Upload Supporting Documents{" "}
+              <span
+                style={{
+                  color: "#4A4A4A",
+                  fontWeight: 400,
+                  textTransform: "none",
+                  fontSize: 11,
+                  letterSpacing: 0,
+                }}
+              >
+                (optional)
+              </span>
+            </p>
+            <DocUploadField
+              label="Upload ID Photo"
+              state={idDoc}
+              onChange={setIdDoc}
+              ocid="move.sender_verification_modal.id_doc"
+            />
+          </div>
+          {error && (
+            <div
+              style={{
+                background: "rgba(248,113,113,0.08)",
+                border: "1px solid rgba(248,113,113,0.3)",
+                borderRadius: 8,
+                padding: "10px 14px",
+                color: "#F87171",
+                fontSize: 13,
+              }}
+              data-ocid="move.sender_verification_modal.error"
+            >
+              {error}
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={submitting || idDoc.uploading}
+            style={{
+              ...GOLD_BTN,
+              width: "100%",
+              justifyContent: "center",
+              padding: "12px 18px",
+              opacity: submitting || idDoc.uploading ? 0.7 : 1,
+              cursor: submitting || idDoc.uploading ? "not-allowed" : "pointer",
+              marginTop: 4,
+            }}
+            data-ocid="move.sender_verification_modal.submit"
+          >
+            {submitting ? (
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span
+                  style={{
+                    width: 14,
+                    height: 14,
+                    border: "2px solid rgba(0,0,0,0.3)",
+                    borderTopColor: "#111",
+                    borderRadius: "50%",
+                    animation: "spin 0.7s linear infinite",
+                    display: "inline-block",
+                  }}
+                />
+                Verifying…
+              </span>
+            ) : idDoc.uploading ? (
+              "Uploading document…"
+            ) : (
+              <>
+                <ShieldCheck size={15} /> Verify & Continue
+              </>
+            )}
+          </button>
+        </form>
+      </motion.div>
     </div>
   );
 }
@@ -2993,6 +3841,12 @@ export function MoveScreen({
   const isLoggedIn = identity !== null && identity !== undefined;
   const [role, setRole] = useState<Role>("rider");
 
+  // Verification state — checked once on mount; cached so subsequent taps don't re-query
+  const [riderVerified, setRiderVerified] = useState<boolean | null>(null);
+  const [senderVerified, setSenderVerified] = useState<boolean | null>(null);
+  const [showRiderVerifyModal, setShowRiderVerifyModal] = useState(false);
+  const [showSenderVerifyModal, setShowSenderVerifyModal] = useState(false);
+
   // Rider state
   const [riderRoutes, setRiderRoutes] = useState<RiderRoute[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<
@@ -3050,7 +3904,26 @@ export function MoveScreen({
     if (!actor || !isLoggedIn) return;
     void loadRiderData();
     void loadSenderData();
+    void checkVerificationStatus();
   }, [actor, isLoggedIn]);
+
+  async function checkVerificationStatus() {
+    if (!actor) return;
+    function raceTimeout<T>(p: Promise<T>, fallback: T): Promise<T> {
+      return Promise.race([
+        p.catch(() => fallback),
+        new Promise<T>((resolve) => setTimeout(() => resolve(fallback), 8000)),
+      ]);
+    }
+    const [riderVerif, senderVerif] = await Promise.all([
+      raceTimeout(actor.getRiderVerification(), null),
+      raceTimeout(actor.getSenderVerification(), null),
+    ]);
+    if (mountedRef.current) {
+      setRiderVerified(riderVerif !== null);
+      setSenderVerified(senderVerif !== null);
+    }
+  }
 
   async function loadAllRoutes() {
     if (!actor) return;
@@ -3279,6 +4152,36 @@ export function MoveScreen({
     action();
   }
 
+  function guardRiderAction(action: () => void) {
+    if (!isLoggedIn) {
+      toast.error("Sign in to continue", {
+        description: "Log in via the Profile tab.",
+      });
+      return;
+    }
+    // riderVerified === null means still loading — allow through (backend will catch unverified)
+    if (riderVerified === false) {
+      setShowRiderVerifyModal(true);
+      return;
+    }
+    action();
+  }
+
+  function guardSenderAction(action: () => void) {
+    if (!isLoggedIn) {
+      toast.error("Sign in to continue", {
+        description: "Log in via the Profile tab.",
+      });
+      return;
+    }
+    // senderVerified === null means still loading — allow through
+    if (senderVerified === false) {
+      setShowSenderVerifyModal(true);
+      return;
+    }
+    action();
+  }
+
   // ── Rider view ─────────────────────────────────────────────────────────────
 
   const riderView = (
@@ -3287,7 +4190,7 @@ export function MoveScreen({
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
         <button
           type="button"
-          onClick={() => guardAction(() => setShowRouteModal(true))}
+          onClick={() => guardRiderAction(() => setShowRouteModal(true))}
           style={GOLD_BTN}
           data-ocid="move.rider.register_route.button"
         >
@@ -3882,7 +4785,7 @@ export function MoveScreen({
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
         <button
           type="button"
-          onClick={() => guardAction(() => setShowPkgModal(true))}
+          onClick={() => guardSenderAction(() => setShowPkgModal(true))}
           style={GOLD_BTN}
           data-ocid="move.sender.post_package.button"
         >
@@ -4413,9 +5316,12 @@ export function MoveScreen({
     <main
       style={{
         padding: "20px 16px 32px",
-        minHeight: "100%",
         background: "#0A0A0A",
+        flex: 1,
+        minHeight: 0,
         overflowY: "auto",
+        display: "flex",
+        flexDirection: "column",
       }}
       data-ocid="move.page"
     >
@@ -4608,6 +5514,37 @@ export function MoveScreen({
             onClose={() => setMatchingPkg(null)}
             displayName={displayName}
             userEmail={userEmail}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Verification Modals */}
+      <AnimatePresence>
+        {showRiderVerifyModal && actor && (
+          <RiderVerificationModal
+            open={showRiderVerifyModal}
+            onClose={() => setShowRiderVerifyModal(false)}
+            onVerified={() => {
+              setRiderVerified(true);
+              setShowRiderVerifyModal(false);
+              setShowRouteModal(true);
+            }}
+            actor={actor as MoveActor}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showSenderVerifyModal && actor && (
+          <SenderVerificationModal
+            open={showSenderVerifyModal}
+            onClose={() => setShowSenderVerifyModal(false)}
+            onVerified={() => {
+              setSenderVerified(true);
+              setShowSenderVerifyModal(false);
+              setShowPkgModal(true);
+            }}
+            actor={actor as MoveActor}
           />
         )}
       </AnimatePresence>

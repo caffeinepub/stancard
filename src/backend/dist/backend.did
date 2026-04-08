@@ -1,0 +1,248 @@
+type YouTubeVideo = 
+ record {
+   channelTitle: text;
+   thumbnail: text;
+   title: text;
+   videoId: text;
+ };
+type WalletTransaction = 
+ record {
+   amount: float64;
+   currency: text;
+   date: text;
+   desc: text;
+   id: text;
+   status: text;
+   txType: text;
+ };
+type WalletBalance = 
+ record {
+   amount: float64;
+   currency: text;
+ };
+type VirtualAccountResult = 
+ variant {
+   err: text;
+   ok: VirtualAccount;
+ };
+type VirtualAccount = 
+ record {
+   accountName: text;
+   accountNumber: text;
+   bankName: text;
+   expiresAt: text;
+   reference: text;
+ };
+type UserProfile = 
+ record {
+   displayName: text;
+   hideBalance: bool;
+   hideTransactions: bool;
+   language: text;
+   preferredCurrency: text;
+ };
+type TrackingEntry = 
+ record {
+   status: text;
+   timestamp: int;
+ };
+type StockQuote = 
+ record {
+   changesPercentage: float64;
+   name: text;
+   price: float64;
+   symbol: text;
+ };
+type ShipmentTracking = 
+ record {
+   currentStatus: text;
+   entries: vec TrackingEntry;
+   packageId: text;
+   requestId: text;
+   trackingCode: text;
+ };
+type SendMoneyResult = 
+ variant {
+   err: text;
+   ok:
+    record {
+      amount: float64;
+      currency: text;
+      recipientId: text;
+      reference: text;
+      timestamp: text;
+      txId: text;
+    };
+ };
+type RiderRoute = 
+ record {
+   cargoSpace: text;
+   createdAt: int;
+   departureCity: text;
+   departureCountry: text;
+   destinationCity: text;
+   destinationCountry: text;
+   riderPrincipal: principal;
+   routeId: text;
+   travelDate: text;
+   vehicleType: text;
+ };
+type RequestWithPackage = 
+ record {
+   createdAt: int;
+   description: text;
+   destinationCity: text;
+   destinationCountry: text;
+   packageId: text;
+   pickupLocation: text;
+   requestId: text;
+   routeId: text;
+   senderPrincipal: principal;
+   size: text;
+   status: text;
+   weightKg: float64;
+ };
+type Package = 
+ record {
+   createdAt: int;
+   description: text;
+   destinationCity: text;
+   destinationCountry: text;
+   packageId: text;
+   pickupLocation: text;
+   senderPrincipal: principal;
+   size: text;
+   weightKg: float64;
+ };
+type NewsData = 
+ record {
+   articles: vec NewsArticle;
+   lastUpdated: nat;
+   success: bool;
+ };
+type NewsArticle = 
+ record {
+   description: text;
+   publishedAt: text;
+   source: text;
+   title: text;
+   url: text;
+   urlToImage: text;
+ };
+type MoveResult = 
+ variant {
+   err: text;
+   ok: text;
+ };
+type MarketData = 
+ record {
+   crypto: vec CryptoQuote;
+   forex: vec ForexRate;
+   lastUpdated: nat;
+   stocks: vec StockQuote;
+   success: bool;
+ };
+type ForexRate = 
+ record {
+   rate: float64;
+   symbol: text;
+ };
+type DeliveryRequest = 
+ record {
+   createdAt: int;
+   packageId: text;
+   requestId: text;
+   riderPrincipal: principal;
+   routeId: text;
+   senderPrincipal: principal;
+   status: text;
+ };
+type CryptoQuote = 
+ record {
+   changesPercentage: float64;
+   name: text;
+   price: float64;
+   symbol: text;
+ };
+type Alert = 
+ record {
+   assetType: text;
+   condition: text;
+   createdAt: nat;
+   id: text;
+   isActive: bool;
+   isTriggered: bool;
+   symbol: text;
+   targetPrice: float64;
+ };
+type AcceptedDeliveryWithTracking = 
+ record {
+   createdAt: int;
+   packageId: text;
+   requestId: text;
+   riderPrincipal: principal;
+   routeId: text;
+   senderPrincipal: principal;
+   status: text;
+   trackingCode: text;
+   trackingEntries: vec TrackingEntry;
+ };
+service : {
+  addAlert: (assetType: text, symbol: text, condition: text, targetPrice:
+   float64) -> (Alert);
+  addWalletTransaction: (txType: text, currency: text, amount: float64, date:
+   text, desc: text, status: text) -> (WalletTransaction);
+  clearAlertTriggered: (id: text) -> (bool);
+  createVirtualAccount: (displayName: text) -> (VirtualAccountResult);
+  deleteAlert: (id: text) -> (bool);
+  deleteRoute: (routeId: text) -> (MoveResult);
+  getAcceptedDeliveries: () -> (vec DeliveryRequest) query;
+  getAcceptedDeliveriesWithTracking: () ->
+   (vec AcceptedDeliveryWithTracking) query;
+  getAlerts: () -> (vec Alert);
+  getAllRoutes: () -> (vec RiderRoute) query;
+  getHistoricalPrices: (symbol: text) -> (vec float64);
+  getIncomingRequests: () -> (vec RequestWithPackage) query;
+  getMarketData: () -> (MarketData);
+  getMatchedRiders: (destinationCity: text, destinationCountry: text) ->
+   (vec RiderRoute) query;
+  getNewsData: () -> (NewsData);
+  getRiderRoutes: () -> (vec RiderRoute) query;
+  getSenderPackages: () -> (vec Package) query;
+  getSenderRequests: () -> (vec DeliveryRequest) query;
+  getSenderTrackings: () -> (vec ShipmentTracking) query;
+  getTrackingByCode: (code: text) -> (opt ShipmentTracking) query;
+  getTrackingByRequestId: (requestId: text) -> (opt ShipmentTracking) query;
+  getUserProfile: () -> (opt UserProfile) query;
+  getVirtualAccount: () -> (opt VirtualAccount) query;
+  getWalletBalance: (currency: text) -> (float64) query;
+  getWalletBalances: () -> (vec WalletBalance) query;
+  getWalletTransactions: () -> (vec WalletTransaction) query;
+  getYouTubeVideos: () -> (vec YouTubeVideo);
+  getYouTubeVideosByQuery: (searchQuery: text) -> (vec YouTubeVideo);
+  markAlertTriggered: (id: text) -> (bool);
+  postPackage: (pickupLocation: text, destinationCity: text,
+   destinationCountry: text, size: text, weightKg: float64, description:
+   text) -> (MoveResult);
+  recordMovePayment: (packageId: text, routeId: text, riderPrincipalText:
+   text, amount: float64, currency: text, _reference: text, method: text,
+   dateStr: text) -> (MoveResult);
+  refreshVirtualAccount: (displayName: text) -> (VirtualAccountResult);
+  registerRoute: (vehicleType: text, departureCity: text, departureCountry:
+   text, destinationCity: text, destinationCountry: text, travelDate: 
+   text, cargoSpace: text) -> (MoveResult);
+  respondToRequest: (requestId: text, accept: bool) -> (MoveResult);
+  saveUserProfile: (displayName: text, preferredCurrency: text, language:
+   text, hideBalance: bool, hideTransactions: bool) -> (UserProfile);
+  sendDeliveryRequest: (packageId: text, routeId: text, riderPrincipalText:
+   text) -> (MoveResult);
+  sendMoney: (recipientPrincipal: text, amount: float64, currency: text,
+   dateStr: text) -> (SendMoneyResult);
+  updateAlert: (id: text, isActive: bool) -> (bool);
+  updateRoute: (routeId: text, vehicleType: text, departureCity: text,
+   departureCountry: text, destinationCity: text, destinationCountry: 
+   text, travelDate: text, cargoSpace: text) -> (MoveResult);
+  updateShipmentStatus: (requestId: text, newStatus: text) -> (MoveResult);
+  updateWalletBalance: (currency: text, newAmount: float64) ->
+   (WalletBalance);
+}

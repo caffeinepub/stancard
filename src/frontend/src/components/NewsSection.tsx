@@ -1,9 +1,17 @@
 import { Clock, Globe, Newspaper, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { forwardRef, useState } from "react";
-import type { NewsArticle } from "../declarations/backend.did.d.ts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface NewsArticle {
+  title: string;
+  source: string;
+  url: string;
+  urlToImage: string;
+  publishedAt: string;
+  description: string;
+}
 
 type NewsCategory = "Global" | "Africa" | "Asia" | "Business" | "Crypto";
 

@@ -89,10 +89,890 @@ export class ExternalBlob {
         return this;
     }
 }
-export interface backendInterface {
+export interface CryptoQuote {
+    name: string;
+    changesPercentage: number;
+    price: number;
+    symbol: string;
 }
+export type VirtualAccountResult = {
+    __kind__: "ok";
+    ok: VirtualAccount;
+} | {
+    __kind__: "err";
+    err: string;
+};
+export interface NewsData {
+    articles: Array<NewsArticle>;
+    lastUpdated: bigint;
+    success: boolean;
+}
+export interface WalletBalance {
+    currency: string;
+    amount: number;
+}
+export interface RiderRoute {
+    vehicleType: string;
+    riderPrincipal: Principal;
+    departureCountry: string;
+    departureCity: string;
+    createdAt: bigint;
+    destinationCity: string;
+    routeId: string;
+    travelDate: string;
+    destinationCountry: string;
+    cargoSpace: string;
+}
+export interface WalletTransaction {
+    id: string;
+    status: string;
+    date: string;
+    desc: string;
+    currency: string;
+    txType: string;
+    amount: number;
+}
+export interface Package {
+    createdAt: bigint;
+    size: string;
+    description: string;
+    destinationCity: string;
+    weightKg: number;
+    senderPrincipal: Principal;
+    destinationCountry: string;
+    packageId: string;
+    pickupLocation: string;
+}
+export type MoveResult = {
+    __kind__: "ok";
+    ok: string;
+} | {
+    __kind__: "err";
+    err: string;
+};
+export type SendMoneyResult = {
+    __kind__: "ok";
+    ok: {
+        txId: string;
+        reference: string;
+        currency: string;
+        timestamp: string;
+        amount: number;
+        recipientId: string;
+    };
+} | {
+    __kind__: "err";
+    err: string;
+};
+export interface StockQuote {
+    name: string;
+    changesPercentage: number;
+    price: number;
+    symbol: string;
+}
+export interface ShipmentTracking {
+    trackingCode: string;
+    requestId: string;
+    entries: Array<TrackingEntry>;
+    currentStatus: string;
+    packageId: string;
+}
+export interface MarketData {
+    forex: Array<ForexRate>;
+    stocks: Array<StockQuote>;
+    lastUpdated: bigint;
+    crypto: Array<CryptoQuote>;
+    success: boolean;
+}
+export interface ForexRate {
+    rate: number;
+    symbol: string;
+}
+export interface DeliveryRequest {
+    status: string;
+    requestId: string;
+    riderPrincipal: Principal;
+    createdAt: bigint;
+    senderPrincipal: Principal;
+    routeId: string;
+    packageId: string;
+}
+export interface AcceptedDeliveryWithTracking {
+    status: string;
+    trackingCode: string;
+    requestId: string;
+    riderPrincipal: Principal;
+    createdAt: bigint;
+    senderPrincipal: Principal;
+    routeId: string;
+    trackingEntries: Array<TrackingEntry>;
+    packageId: string;
+}
+export interface VirtualAccount {
+    expiresAt: string;
+    reference: string;
+    bankName: string;
+    accountName: string;
+    accountNumber: string;
+}
+export interface TrackingEntry {
+    status: string;
+    timestamp: bigint;
+}
+export interface RequestWithPackage {
+    status: string;
+    requestId: string;
+    createdAt: bigint;
+    size: string;
+    description: string;
+    destinationCity: string;
+    weightKg: number;
+    senderPrincipal: Principal;
+    routeId: string;
+    destinationCountry: string;
+    packageId: string;
+    pickupLocation: string;
+}
+export interface NewsArticle {
+    url: string;
+    title: string;
+    source: string;
+    urlToImage: string;
+    publishedAt: string;
+    description: string;
+}
+export interface YouTubeVideo {
+    title: string;
+    channelTitle: string;
+    thumbnail: string;
+    videoId: string;
+}
+export interface UserProfile {
+    hideBalance: boolean;
+    hideTransactions: boolean;
+    displayName: string;
+    preferredCurrency: string;
+    language: string;
+}
+export interface Alert {
+    id: string;
+    createdAt: bigint;
+    targetPrice: number;
+    isActive: boolean;
+    assetType: string;
+    isTriggered: boolean;
+    symbol: string;
+    condition: string;
+}
+export interface backendInterface {
+    addAlert(assetType: string, symbol: string, condition: string, targetPrice: number): Promise<Alert>;
+    addWalletTransaction(txType: string, currency: string, amount: number, date: string, desc: string, status: string): Promise<WalletTransaction>;
+    clearAlertTriggered(id: string): Promise<boolean>;
+    createVirtualAccount(displayName: string): Promise<VirtualAccountResult>;
+    deleteAlert(id: string): Promise<boolean>;
+    deleteRoute(routeId: string): Promise<MoveResult>;
+    getAcceptedDeliveries(): Promise<Array<DeliveryRequest>>;
+    getAcceptedDeliveriesWithTracking(): Promise<Array<AcceptedDeliveryWithTracking>>;
+    getAlerts(): Promise<Array<Alert>>;
+    getAllRoutes(): Promise<Array<RiderRoute>>;
+    getHistoricalPrices(symbol: string): Promise<Array<number>>;
+    getIncomingRequests(): Promise<Array<RequestWithPackage>>;
+    getMarketData(): Promise<MarketData>;
+    getMatchedRiders(destinationCity: string, destinationCountry: string): Promise<Array<RiderRoute>>;
+    getNewsData(): Promise<NewsData>;
+    getRiderRoutes(): Promise<Array<RiderRoute>>;
+    getSenderPackages(): Promise<Array<Package>>;
+    getSenderRequests(): Promise<Array<DeliveryRequest>>;
+    getSenderTrackings(): Promise<Array<ShipmentTracking>>;
+    getTrackingByCode(code: string): Promise<ShipmentTracking | null>;
+    getTrackingByRequestId(requestId: string): Promise<ShipmentTracking | null>;
+    getUserProfile(): Promise<UserProfile | null>;
+    getVirtualAccount(): Promise<VirtualAccount | null>;
+    getWalletBalance(currency: string): Promise<number>;
+    getWalletBalances(): Promise<Array<WalletBalance>>;
+    getWalletTransactions(): Promise<Array<WalletTransaction>>;
+    getYouTubeVideos(): Promise<Array<YouTubeVideo>>;
+    getYouTubeVideosByQuery(searchQuery: string): Promise<Array<YouTubeVideo>>;
+    markAlertTriggered(id: string): Promise<boolean>;
+    postPackage(pickupLocation: string, destinationCity: string, destinationCountry: string, size: string, weightKg: number, description: string): Promise<MoveResult>;
+    recordMovePayment(packageId: string, routeId: string, riderPrincipalText: string, amount: number, currency: string, _reference: string, method: string, dateStr: string): Promise<MoveResult>;
+    refreshVirtualAccount(displayName: string): Promise<VirtualAccountResult>;
+    registerRoute(vehicleType: string, departureCity: string, departureCountry: string, destinationCity: string, destinationCountry: string, travelDate: string, cargoSpace: string): Promise<MoveResult>;
+    respondToRequest(requestId: string, accept: boolean): Promise<MoveResult>;
+    saveUserProfile(displayName: string, preferredCurrency: string, language: string, hideBalance: boolean, hideTransactions: boolean): Promise<UserProfile>;
+    sendDeliveryRequest(packageId: string, routeId: string, riderPrincipalText: string): Promise<MoveResult>;
+    sendMoney(recipientPrincipal: string, amount: number, currency: string, dateStr: string): Promise<SendMoneyResult>;
+    updateAlert(id: string, isActive: boolean): Promise<boolean>;
+    updateRoute(routeId: string, vehicleType: string, departureCity: string, departureCountry: string, destinationCity: string, destinationCountry: string, travelDate: string, cargoSpace: string): Promise<MoveResult>;
+    updateShipmentStatus(requestId: string, newStatus: string): Promise<MoveResult>;
+    updateWalletBalance(currency: string, newAmount: number): Promise<WalletBalance>;
+}
+import type { MoveResult as _MoveResult, SendMoneyResult as _SendMoneyResult, ShipmentTracking as _ShipmentTracking, UserProfile as _UserProfile, VirtualAccount as _VirtualAccount, VirtualAccountResult as _VirtualAccountResult } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
+    async addAlert(arg0: string, arg1: string, arg2: string, arg3: number): Promise<Alert> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.addAlert(arg0, arg1, arg2, arg3);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.addAlert(arg0, arg1, arg2, arg3);
+            return result;
+        }
+    }
+    async addWalletTransaction(arg0: string, arg1: string, arg2: number, arg3: string, arg4: string, arg5: string): Promise<WalletTransaction> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.addWalletTransaction(arg0, arg1, arg2, arg3, arg4, arg5);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.addWalletTransaction(arg0, arg1, arg2, arg3, arg4, arg5);
+            return result;
+        }
+    }
+    async clearAlertTriggered(arg0: string): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.clearAlertTriggered(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.clearAlertTriggered(arg0);
+            return result;
+        }
+    }
+    async createVirtualAccount(arg0: string): Promise<VirtualAccountResult> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.createVirtualAccount(arg0);
+                return from_candid_VirtualAccountResult_n1(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.createVirtualAccount(arg0);
+            return from_candid_VirtualAccountResult_n1(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async deleteAlert(arg0: string): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deleteAlert(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deleteAlert(arg0);
+            return result;
+        }
+    }
+    async deleteRoute(arg0: string): Promise<MoveResult> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deleteRoute(arg0);
+                return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deleteRoute(arg0);
+            return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getAcceptedDeliveries(): Promise<Array<DeliveryRequest>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAcceptedDeliveries();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAcceptedDeliveries();
+            return result;
+        }
+    }
+    async getAcceptedDeliveriesWithTracking(): Promise<Array<AcceptedDeliveryWithTracking>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAcceptedDeliveriesWithTracking();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAcceptedDeliveriesWithTracking();
+            return result;
+        }
+    }
+    async getAlerts(): Promise<Array<Alert>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAlerts();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAlerts();
+            return result;
+        }
+    }
+    async getAllRoutes(): Promise<Array<RiderRoute>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAllRoutes();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAllRoutes();
+            return result;
+        }
+    }
+    async getHistoricalPrices(arg0: string): Promise<Array<number>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getHistoricalPrices(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getHistoricalPrices(arg0);
+            return result;
+        }
+    }
+    async getIncomingRequests(): Promise<Array<RequestWithPackage>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getIncomingRequests();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getIncomingRequests();
+            return result;
+        }
+    }
+    async getMarketData(): Promise<MarketData> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getMarketData();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getMarketData();
+            return result;
+        }
+    }
+    async getMatchedRiders(arg0: string, arg1: string): Promise<Array<RiderRoute>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getMatchedRiders(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getMatchedRiders(arg0, arg1);
+            return result;
+        }
+    }
+    async getNewsData(): Promise<NewsData> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getNewsData();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getNewsData();
+            return result;
+        }
+    }
+    async getRiderRoutes(): Promise<Array<RiderRoute>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getRiderRoutes();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getRiderRoutes();
+            return result;
+        }
+    }
+    async getSenderPackages(): Promise<Array<Package>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getSenderPackages();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getSenderPackages();
+            return result;
+        }
+    }
+    async getSenderRequests(): Promise<Array<DeliveryRequest>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getSenderRequests();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getSenderRequests();
+            return result;
+        }
+    }
+    async getSenderTrackings(): Promise<Array<ShipmentTracking>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getSenderTrackings();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getSenderTrackings();
+            return result;
+        }
+    }
+    async getTrackingByCode(arg0: string): Promise<ShipmentTracking | null> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getTrackingByCode(arg0);
+                return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getTrackingByCode(arg0);
+            return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getTrackingByRequestId(arg0: string): Promise<ShipmentTracking | null> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getTrackingByRequestId(arg0);
+                return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getTrackingByRequestId(arg0);
+            return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getUserProfile(): Promise<UserProfile | null> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getUserProfile();
+                return from_candid_opt_n6(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getUserProfile();
+            return from_candid_opt_n6(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getVirtualAccount(): Promise<VirtualAccount | null> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getVirtualAccount();
+                return from_candid_opt_n7(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getVirtualAccount();
+            return from_candid_opt_n7(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getWalletBalance(arg0: string): Promise<number> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getWalletBalance(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getWalletBalance(arg0);
+            return result;
+        }
+    }
+    async getWalletBalances(): Promise<Array<WalletBalance>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getWalletBalances();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getWalletBalances();
+            return result;
+        }
+    }
+    async getWalletTransactions(): Promise<Array<WalletTransaction>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getWalletTransactions();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getWalletTransactions();
+            return result;
+        }
+    }
+    async getYouTubeVideos(): Promise<Array<YouTubeVideo>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getYouTubeVideos();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getYouTubeVideos();
+            return result;
+        }
+    }
+    async getYouTubeVideosByQuery(arg0: string): Promise<Array<YouTubeVideo>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getYouTubeVideosByQuery(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getYouTubeVideosByQuery(arg0);
+            return result;
+        }
+    }
+    async markAlertTriggered(arg0: string): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.markAlertTriggered(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.markAlertTriggered(arg0);
+            return result;
+        }
+    }
+    async postPackage(arg0: string, arg1: string, arg2: string, arg3: string, arg4: number, arg5: string): Promise<MoveResult> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.postPackage(arg0, arg1, arg2, arg3, arg4, arg5);
+                return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.postPackage(arg0, arg1, arg2, arg3, arg4, arg5);
+            return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async recordMovePayment(arg0: string, arg1: string, arg2: string, arg3: number, arg4: string, arg5: string, arg6: string, arg7: string): Promise<MoveResult> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.recordMovePayment(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+                return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.recordMovePayment(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+            return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async refreshVirtualAccount(arg0: string): Promise<VirtualAccountResult> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.refreshVirtualAccount(arg0);
+                return from_candid_VirtualAccountResult_n1(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.refreshVirtualAccount(arg0);
+            return from_candid_VirtualAccountResult_n1(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async registerRoute(arg0: string, arg1: string, arg2: string, arg3: string, arg4: string, arg5: string, arg6: string): Promise<MoveResult> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.registerRoute(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
+                return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.registerRoute(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
+            return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async respondToRequest(arg0: string, arg1: boolean): Promise<MoveResult> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.respondToRequest(arg0, arg1);
+                return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.respondToRequest(arg0, arg1);
+            return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async saveUserProfile(arg0: string, arg1: string, arg2: string, arg3: boolean, arg4: boolean): Promise<UserProfile> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.saveUserProfile(arg0, arg1, arg2, arg3, arg4);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.saveUserProfile(arg0, arg1, arg2, arg3, arg4);
+            return result;
+        }
+    }
+    async sendDeliveryRequest(arg0: string, arg1: string, arg2: string): Promise<MoveResult> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.sendDeliveryRequest(arg0, arg1, arg2);
+                return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.sendDeliveryRequest(arg0, arg1, arg2);
+            return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async sendMoney(arg0: string, arg1: number, arg2: string, arg3: string): Promise<SendMoneyResult> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.sendMoney(arg0, arg1, arg2, arg3);
+                return from_candid_SendMoneyResult_n8(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.sendMoney(arg0, arg1, arg2, arg3);
+            return from_candid_SendMoneyResult_n8(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async updateAlert(arg0: string, arg1: boolean): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateAlert(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateAlert(arg0, arg1);
+            return result;
+        }
+    }
+    async updateRoute(arg0: string, arg1: string, arg2: string, arg3: string, arg4: string, arg5: string, arg6: string, arg7: string): Promise<MoveResult> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateRoute(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+                return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateRoute(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+            return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async updateShipmentStatus(arg0: string, arg1: string): Promise<MoveResult> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateShipmentStatus(arg0, arg1);
+                return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateShipmentStatus(arg0, arg1);
+            return from_candid_MoveResult_n3(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async updateWalletBalance(arg0: string, arg1: number): Promise<WalletBalance> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateWalletBalance(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateWalletBalance(arg0, arg1);
+            return result;
+        }
+    }
+}
+function from_candid_MoveResult_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _MoveResult): MoveResult {
+    return from_candid_variant_n4(_uploadFile, _downloadFile, value);
+}
+function from_candid_SendMoneyResult_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _SendMoneyResult): SendMoneyResult {
+    return from_candid_variant_n9(_uploadFile, _downloadFile, value);
+}
+function from_candid_VirtualAccountResult_n1(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _VirtualAccountResult): VirtualAccountResult {
+    return from_candid_variant_n2(_uploadFile, _downloadFile, value);
+}
+function from_candid_opt_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_ShipmentTracking]): ShipmentTracking | null {
+    return value.length === 0 ? null : value[0];
+}
+function from_candid_opt_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_UserProfile]): UserProfile | null {
+    return value.length === 0 ? null : value[0];
+}
+function from_candid_opt_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_VirtualAccount]): VirtualAccount | null {
+    return value.length === 0 ? null : value[0];
+}
+function from_candid_variant_n2(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    ok: _VirtualAccount;
+} | {
+    err: string;
+}): {
+    __kind__: "ok";
+    ok: VirtualAccount;
+} | {
+    __kind__: "err";
+    err: string;
+} {
+    return "ok" in value ? {
+        __kind__: "ok",
+        ok: value.ok
+    } : "err" in value ? {
+        __kind__: "err",
+        err: value.err
+    } : value;
+}
+function from_candid_variant_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    ok: string;
+} | {
+    err: string;
+}): {
+    __kind__: "ok";
+    ok: string;
+} | {
+    __kind__: "err";
+    err: string;
+} {
+    return "ok" in value ? {
+        __kind__: "ok",
+        ok: value.ok
+    } : "err" in value ? {
+        __kind__: "err",
+        err: value.err
+    } : value;
+}
+function from_candid_variant_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    ok: {
+        txId: string;
+        reference: string;
+        currency: string;
+        timestamp: string;
+        amount: number;
+        recipientId: string;
+    };
+} | {
+    err: string;
+}): {
+    __kind__: "ok";
+    ok: {
+        txId: string;
+        reference: string;
+        currency: string;
+        timestamp: string;
+        amount: number;
+        recipientId: string;
+    };
+} | {
+    __kind__: "err";
+    err: string;
+} {
+    return "ok" in value ? {
+        __kind__: "ok",
+        ok: value.ok
+    } : "err" in value ? {
+        __kind__: "err",
+        err: value.err
+    } : value;
 }
 export interface CreateActorOptions {
     agent?: Agent;

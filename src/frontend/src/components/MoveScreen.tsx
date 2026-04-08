@@ -2067,9 +2067,16 @@ function DeliveryMiniMap({
   useEffect(() => {
     async function load() {
       setLoading(true);
+      // Issue 14: 8-second timeout on each forwardGeocode call
+      function geoWithTimeout(location: string) {
+        return Promise.race([
+          forwardGeocode(location),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+        ]);
+      }
       const [pickupCoord, destCoord] = await Promise.all([
-        forwardGeocode(pickup),
-        forwardGeocode(destination),
+        geoWithTimeout(pickup),
+        geoWithTimeout(destination),
       ]);
       if (!mountedRef.current) return;
       const newMarkers: MapMarker[] = [];
@@ -2176,22 +2183,35 @@ function MovePaymentModal({
     };
   }, []);
 
-  // Fetch wallet balance and forex rate in parallel
+  // Fetch wallet balance and forex rate in parallel — both wrapped in 8-second timeout
   useEffect(() => {
     async function loadData() {
       setLoading(true);
-      try {
-        const [balance, marketData] = await Promise.allSettled([
-          actor.getWalletBalance("NGN"),
-          actor.getMarketData(),
+      function raceTimeout<T>(p: Promise<T>, fallback: T): Promise<T> {
+        return Promise.race([
+          p.catch(() => fallback),
+          new Promise<T>((resolve) =>
+            setTimeout(() => resolve(fallback), 8000),
+          ),
         ]);
-        if (balance.status === "fulfilled") {
-          setWalletBalance(balance.value);
-        } else {
-          setWalletBalance(0);
-        }
-        if (marketData.status === "fulfilled") {
-          const ngn = marketData.value.forex.find((f) => f.symbol === "NGN");
+      }
+      try {
+        const [balance, marketData] = await Promise.all([
+          raceTimeout(actor.getWalletBalance("NGN"), 0),
+          raceTimeout(
+            actor.getMarketData(),
+            null as {
+              forex: Array<{ symbol: string; rate: number }>;
+              stocks: unknown[];
+              crypto: unknown[];
+              lastUpdated: bigint;
+              success: boolean;
+            } | null,
+          ),
+        ]);
+        setWalletBalance(balance);
+        if (marketData) {
+          const ngn = marketData.forex.find((f) => f.symbol === "NGN");
           if (ngn && ngn.rate > 0) {
             setNgnRate(ngn.rate);
           }
@@ -2252,7 +2272,10 @@ function MovePaymentModal({
       amount: fee,
       currency: "NGN",
       customer: {
-        email: "user@stancard.app",
+        // Issue 10: use real display name/email — never hardcode
+        email: displayName
+          ? `${displayName.toLowerCase().replace(/\s+/g, ".")}@stancard.user`
+          : "user@stancard.space",
         name: displayName || "Stancard User",
       },
       customizations: {
@@ -2642,10 +2665,13 @@ function MatchedRidersPanel({
     async function load() {
       setLoading(true);
       try {
-        const data = await actor.getMatchedRiders(
-          pkg.destinationCity,
-          pkg.destinationCountry,
-        );
+        // Issue 5: 8-second timeout on getMatchedRiders
+        const data = await Promise.race([
+          actor.getMatchedRiders(pkg.destinationCity, pkg.destinationCountry),
+          new Promise<RiderRoute[]>((resolve) =>
+            setTimeout(() => resolve([]), 8000),
+          ),
+        ]);
         setRiders(data);
 
         // Geocode all rider routes for map
@@ -3052,11 +3078,21 @@ export function MoveScreen({
     if (!actor) return;
     setLoadingRoutes(true);
     setLoadingRequests(true);
+    // Issue 6: 8-second timeout on each canister call; resolve with empty on timeout
+    function raceTimeout<T>(p: Promise<T>, fallback: T): Promise<T> {
+      return Promise.race([
+        p.catch(() => fallback),
+        new Promise<T>((resolve) => setTimeout(() => resolve(fallback), 8000)),
+      ]);
+    }
     try {
       const [routes, requests, accepted] = await Promise.all([
-        actor.getRiderRoutes(),
-        actor.getIncomingRequests(),
-        actor.getAcceptedDeliveriesWithTracking(),
+        raceTimeout(actor.getRiderRoutes(), [] as RiderRoute[]),
+        raceTimeout(actor.getIncomingRequests(), [] as RequestWithPackage[]),
+        raceTimeout(
+          actor.getAcceptedDeliveriesWithTracking(),
+          [] as AcceptedDeliveryWithTracking[],
+        ),
       ]);
       if (mountedRef.current) {
         setRiderRoutes(routes);
@@ -3076,11 +3112,18 @@ export function MoveScreen({
   async function loadSenderData() {
     if (!actor) return;
     setLoadingPackages(true);
+    // Issue 6: 8-second timeout on each canister call; resolve with empty on timeout
+    function raceTimeout<T>(p: Promise<T>, fallback: T): Promise<T> {
+      return Promise.race([
+        p.catch(() => fallback),
+        new Promise<T>((resolve) => setTimeout(() => resolve(fallback), 8000)),
+      ]);
+    }
     try {
       const [pkgs, requests, trackings] = await Promise.all([
-        actor.getSenderPackages(),
-        actor.getSenderRequests(),
-        actor.getSenderTrackings(),
+        raceTimeout(actor.getSenderPackages(), [] as PackageType[]),
+        raceTimeout(actor.getSenderRequests(), [] as DeliveryRequest[]),
+        raceTimeout(actor.getSenderTrackings(), [] as ShipmentTracking[]),
       ]);
       if (mountedRef.current) {
         setSenderPackages(pkgs);

@@ -6,13 +6,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { _SERVICE } from "../declarations/backend.did.d.ts";
-import type {
-  CryptoQuote,
-  ForexRate,
-  MarketData,
-  StockQuote,
-} from "../declarations/backend.did.d.ts";
 import { useActor } from "../hooks/useActor";
 import {
   ExpandedChartModal,
@@ -20,7 +13,39 @@ import {
   generateSparklineData,
 } from "./Sparkline";
 
-// Local type for backend actor with historical prices support
+// ─── Local types (mirrors backend Motoko types) ────────────────────────────
+export interface StockQuote {
+  symbol: string;
+  name: string;
+  price: number;
+  changesPercentage: number;
+}
+
+export interface ForexRate {
+  symbol: string;
+  rate: number;
+}
+
+export interface CryptoQuote {
+  symbol: string;
+  name: string;
+  price: number;
+  changesPercentage: number;
+}
+
+export interface MarketData {
+  stocks: StockQuote[];
+  forex: ForexRate[];
+  crypto: CryptoQuote[];
+  lastUpdated: bigint;
+  success: boolean;
+}
+
+// Local actor types for backend calls
+type ActorWithMarket = {
+  getMarketData: () => Promise<MarketData>;
+};
+
 type ActorWithHistorical = {
   getHistoricalPrices: (symbol: string) => Promise<number[]>;
 };
@@ -727,7 +752,7 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
     if (pendingRef.current) return;
     pendingRef.current = true;
     try {
-      const typedActor = actor as unknown as _SERVICE;
+      const typedActor = actor as unknown as ActorWithMarket;
       // Issue 9: 8-second timeout on market data fetch
       const dataPromise = typedActor.getMarketData();
       const timeoutPromise = new Promise<never>((_, rej) =>

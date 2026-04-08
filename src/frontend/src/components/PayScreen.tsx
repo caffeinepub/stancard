@@ -2743,6 +2743,7 @@ export function PayScreen({
         onClose={() => setFundOpen(false)}
         defaultCurrency={selectedCurrency}
         onSuccess={handleFundSuccess}
+        displayName={displayName}
       />
       <SendModal
         open={sendOpen}

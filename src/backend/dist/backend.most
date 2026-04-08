@@ -1,0 +1,238 @@
+// Version: 3.0.0
+type Alert__365804026 =
+  {
+    assetType : Text;
+    condition : Text;
+    createdAt : Nat;
+    id : Text;
+    isActive : Bool;
+    isTriggered : Bool;
+    symbol : Text;
+    targetPrice : Float
+  };
+type Data__791452850<K, V> =
+  {var count : Nat__490723111; kvs : [var ?(K, V)]};
+type DeliveryRequest__428248108 =
+  {
+    createdAt : Int;
+    packageId : Text;
+    requestId : Text;
+    riderPrincipal : Principal;
+    routeId : Text;
+    senderPrincipal : Principal;
+    status : Text
+  };
+type HistoricalCache__265516107 = {fetchedAt : Int; prices : [Float]};
+type Internal__8484328<K, V> =
+  {children : [var ?Node__46230540<K, V>]; data : Data__791452850<K, V>};
+type Leaf__809889148<K, V> = {data : Data__791452850<K, V>};
+type Nat__490723111 = Nat__920180692;
+type Nat__920180692 = Nat;
+type Node__46230540<K, V> =
+  {#internal : Internal__8484328<K, V>; #leaf : Leaf__809889148<K, V>};
+type OldAlert__553293601 =
+  {
+    assetType : Text;
+    condition : Text;
+    createdAt : Nat;
+    id : Text;
+    isActive : Bool;
+    isTriggered : Bool;
+    symbol : Text;
+    targetPrice : Float
+  };
+type OldDeliveryRequest__309599370 =
+  {
+    createdAt : Int;
+    packageId : Text;
+    requestId : Text;
+    riderPrincipal : Principal;
+    routeId : Text;
+    senderPrincipal : Principal;
+    status : Text
+  };
+type OldHistoricalCache__512623901 = {fetchedAt : Int; prices : [Float]};
+type OldPackage__213779853 =
+  {
+    createdAt : Int;
+    description : Text;
+    destinationCity : Text;
+    destinationCountry : Text;
+    packageId : Text;
+    pickupLocation : Text;
+    senderPrincipal : Principal;
+    size : Text;
+    weightKg : Float
+  };
+type OldRiderRoute__414867989 =
+  {
+    cargoSpace : Text;
+    createdAt : Int;
+    departureCity : Text;
+    departureCountry : Text;
+    destinationCity : Text;
+    destinationCountry : Text;
+    riderPrincipal : Principal;
+    routeId : Text;
+    travelDate : Text;
+    vehicleType : Text
+  };
+type OldShipmentTracking__191890652 =
+  {
+    currentStatus : Text;
+    entries : [OldTrackingEntry__372241606];
+    packageId : Text;
+    requestId : Text;
+    trackingCode : Text
+  };
+type OldTrackingEntry__372241606 = {status : Text; timestamp : Int};
+type OldUserProfile__416069324 =
+  {
+    displayName : Text;
+    hideBalance : Bool;
+    hideTransactions : Bool;
+    language : Text;
+    preferredCurrency : Text
+  };
+type OldVirtualAccount__1072249306 =
+  {
+    accountName : Text;
+    accountNumber : Text;
+    bankName : Text;
+    expiresAt : Text;
+    reference : Text
+  };
+type OldWalletBalance__364798399 = {amount : Float; currency : Text};
+type OldWalletTransaction__334249798 =
+  {
+    amount : Float;
+    currency : Text;
+    date : Text;
+    desc : Text;
+    id : Text;
+    status : Text;
+    txType : Text
+  };
+type Package__226567178 =
+  {
+    createdAt : Int;
+    description : Text;
+    destinationCity : Text;
+    destinationCountry : Text;
+    packageId : Text;
+    pickupLocation : Text;
+    senderPrincipal : Principal;
+    size : Text;
+    weightKg : Float
+  };
+type RiderRoute__942718174 =
+  {
+    cargoSpace : Text;
+    createdAt : Int;
+    departureCity : Text;
+    departureCountry : Text;
+    destinationCity : Text;
+    destinationCountry : Text;
+    riderPrincipal : Principal;
+    routeId : Text;
+    travelDate : Text;
+    vehicleType : Text
+  };
+type ShipmentTracking__400532964 =
+  {
+    currentStatus : Text;
+    entries : [TrackingEntry__285597012];
+    packageId : Text;
+    requestId : Text;
+    trackingCode : Text
+  };
+type TrackingEntry__285597012 = {status : Text; timestamp : Int};
+type UserProfile__491224006 =
+  {
+    displayName : Text;
+    hideBalance : Bool;
+    hideTransactions : Bool;
+    language : Text;
+    preferredCurrency : Text
+  };
+type VirtualAccount__500273285 =
+  {
+    accountName : Text;
+    accountNumber : Text;
+    bankName : Text;
+    expiresAt : Text;
+    reference : Text
+  };
+type WalletBalance__1012107277 = {amount : Float; currency : Text};
+type WalletTransaction__95917618 =
+  {
+    amount : Float;
+    currency : Text;
+    date : Text;
+    desc : Text;
+    id : Text;
+    status : Text;
+    txType : Text
+  };
+actor ({
+  in var alertCounter : Nat;
+  in var alerts : [OldAlert__553293601];
+  in var deliveryRequests : [OldDeliveryRequest__309599370];
+  in var historicalPriceCache : [(Text, OldHistoricalCache__512623901)];
+  in var packageCounter : Nat;
+  in var packages : [(Principal, [OldPackage__213779853])];
+  in var requestCounter : Nat;
+  in var riderRoutes : [(Principal, [OldRiderRoute__414867989])];
+  in var routeCounter : Nat;
+  in var shipmentTrackings : [OldShipmentTracking__191890652];
+  in var trackingCounter : Nat;
+  in var userProfiles : [(Principal, OldUserProfile__416069324)];
+  in var virtualAccounts : [(Principal, OldVirtualAccount__1072249306)];
+  in var walletBalances : [(Principal, [OldWalletBalance__364798399])];
+  in var walletTransactions :
+    [(Principal, [OldWalletTransaction__334249798])]
+}, {
+  stable var alertCounter : Nat;
+  stable var alerts : [Alert__365804026];
+  stable var deliveryRequests : [DeliveryRequest__428248108];
+  stable historicalPriceCache :
+    {
+      var root : Node__46230540<Text, HistoricalCache__265516107>;
+      var size : Nat__490723111
+    };
+  stable var packageCounter : Nat;
+  stable packages :
+    {
+      var root : Node__46230540<Principal, [Package__226567178]>;
+      var size : Nat__490723111
+    };
+  stable var requestCounter : Nat;
+  stable riderRoutes :
+    {
+      var root : Node__46230540<Principal, [RiderRoute__942718174]>;
+      var size : Nat__490723111
+    };
+  stable var routeCounter : Nat;
+  stable var shipmentTrackings : [ShipmentTracking__400532964];
+  stable var trackingCounter : Nat;
+  stable userProfiles :
+    {
+      var root : Node__46230540<Principal, UserProfile__491224006>;
+      var size : Nat__490723111
+    };
+  stable virtualAccounts :
+    {
+      var root : Node__46230540<Principal, VirtualAccount__500273285>;
+      var size : Nat__490723111
+    };
+  stable walletBalances :
+    {
+      var root : Node__46230540<Principal, [WalletBalance__1012107277]>;
+      var size : Nat__490723111
+    };
+  stable walletTransactions :
+    {
+      var root : Node__46230540<Principal, [WalletTransaction__95917618]>;
+      var size : Nat__490723111
+    }
+}) ;

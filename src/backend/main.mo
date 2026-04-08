@@ -1,16 +1,16 @@
-import Text "mo:base/Text";
-import Float "mo:base/Float";
-import Int "mo:base/Int";
-import Nat "mo:base/Nat";
-import Array "mo:base/Array";
-import Time "mo:base/Time";
+import Text "mo:core/Text";
+import Int "mo:core/Int";
+import Nat "mo:core/Nat";
+import Time "mo:core/Time";
+import Char "mo:core/Char";
+import Nat32 "mo:core/Nat32";
+import Principal "mo:core/Principal";
+import Map "mo:core/Map";
+import Debug "mo:core/Debug";
 import IC "ic:aaaaa-aa";
-import Char "mo:base/Char";
-import Nat32 "mo:base/Nat32";
-import Principal "mo:base/Principal";
-import HashMap "mo:base/HashMap";
-import Iter "mo:base/Iter";
+import Migration "migration";
 
+(with migration = Migration.run)
 persistent actor {
 
   // ─── Types ──────────────────────────────────────────────────
@@ -94,8 +94,8 @@ persistent actor {
 
   var alerts : [Alert] = [];
   var alertCounter : Nat = 0;
-  var userProfiles : [(Principal, UserProfile)] = [];
-  var historicalPriceCache : [(Text, HistoricalCache)] = [];
+  let userProfiles : Map.Map<Principal, UserProfile> = Map.empty<Principal, UserProfile>();
+  let historicalPriceCache : Map.Map<Text, HistoricalCache> = Map.empty<Text, HistoricalCache>();
 
   // ─── Mock / Fallback Data ──────────────────────────────────────────────
 
@@ -183,8 +183,8 @@ persistent actor {
 
   func findKeyPos(s : Text, key : Text) : ?Nat {
     let needle = "\"" # key # "\":";
-    let sChars = Text.toArray(s);
-    let nChars = Text.toArray(needle);
+    let sChars = s.toArray();
+    let nChars = needle.toArray();
     let sLen = sChars.size();
     let nLen = nChars.size();
     var i = 0;
@@ -207,10 +207,16 @@ persistent actor {
 
   func extractStr(s : Text, key : Text) : ?Text {
     switch (findKeyPos(s, key)) {
-      case null null;
+      case null {
+        Debug.print("extractStr: key '" # key # "' not found");
+        null
+      };
       case (?pos) {
-        let chars = Text.toArray(s);
-        if (pos >= chars.size() or chars[pos] != '\"') return null;
+        let chars = s.toArray();
+        if (pos >= chars.size() or chars[pos] != '\"') {
+          Debug.print("extractStr: key '" # key # "' found but value is not a string at pos " # pos.toText());
+          return null;
+        };
         var i = pos + 1;
         var acc = "";
         while (i < chars.size() and chars[i] != '\"') {
@@ -235,7 +241,7 @@ persistent actor {
     var intV : Float = 0.0;
     var hasD = false;
     while (i < len and chars[i] >= '0' and chars[i] <= '9') {
-      intV := intV * 10.0 + Float.fromInt(Nat32.toNat(Char.toNat32(chars[i])) - 48);
+      intV := intV * 10.0 + (chars[i].toNat32().toNat() - 48).toFloat();
       hasD := true;
       i += 1;
     };
@@ -245,7 +251,7 @@ persistent actor {
     if (i < len and chars[i] == '.') {
       i += 1;
       while (i < len and chars[i] >= '0' and chars[i] <= '9') {
-        frac := frac + Float.fromInt(Nat32.toNat(Char.toNat32(chars[i])) - 48) / div;
+        frac := frac + (chars[i].toNat32().toNat() - 48).toFloat() / div;
         div := div * 10.0;
         i += 1;
       };
@@ -257,7 +263,7 @@ persistent actor {
       else if (i < len and chars[i] == '+') { i += 1 };
       var expV : Nat = 0;
       while (i < len and chars[i] >= '0' and chars[i] <= '9') {
-        expV := expV * 10 + (Nat32.toNat(Char.toNat32(chars[i])) - 48);
+        expV := expV * 10 + (chars[i].toNat32().toNat() - 48);
         i += 1;
       };
       var mult : Float = 1.0;
@@ -272,12 +278,21 @@ persistent actor {
 
   func extractNum(s : Text, key : Text) : ?Float {
     switch (findKeyPos(s, key)) {
-      case null null;
+      case null {
+        Debug.print("extractNum: key '" # key # "' not found");
+        null
+      };
       case (?pos) {
-        let chars = Text.toArray(s);
-        if (pos >= chars.size()) return null;
+        let chars = s.toArray();
+        if (pos >= chars.size()) {
+          Debug.print("extractNum: key '" # key # "' found but pos " # pos.toText() # " is out of bounds");
+          return null;
+        };
         switch (parseNum(chars, pos)) {
-          case null null;
+          case null {
+            Debug.print("extractNum: key '" # key # "' could not parse number at pos " # pos.toText());
+            null
+          };
           case (?(v, _)) ?v;
         }
       };
@@ -285,7 +300,7 @@ persistent actor {
   };
 
   func splitObjects(s : Text) : [Text] {
-    let chars = Text.toArray(s);
+    let chars = s.toArray();
     let len = chars.size();
     var depth = 0;
     var start = 0;
@@ -307,7 +322,7 @@ persistent actor {
             var obj = "";
             var j = start;
             while (j <= i) { obj := obj # Text.fromChar(chars[j]); j += 1 };
-            result := Array.append(result, [obj]);
+            result := result.concat([obj]);
           };
         };
       };
@@ -321,7 +336,10 @@ persistent actor {
 
   func parseStocks(json : Text) : ?[StockQuote] {
     let objs = splitObjects(json);
-    if (objs.size() == 0) return null;
+    if (objs.size() == 0) {
+      Debug.print("parseStocks: no JSON objects found in response");
+      return null;
+    };
     var out : [StockQuote] = [];
     for (obj in objs.vals()) {
       let sym = switch (extractStr(obj, "symbol"))            { case (?v) v; case null "" };
@@ -329,20 +347,26 @@ persistent actor {
       let pr  = switch (extractNum(obj, "price"))             { case (?v) v; case null 0.0 };
       let pct = switch (extractNum(obj, "changesPercentage")) { case (?v) v; case null 0.0 };
       if (sym != "") {
-        out := Array.append(out, [{ symbol = sym; name = nm; price = pr; changesPercentage = pct }]);
+        out := out.concat([{ symbol = sym; name = nm; price = pr; changesPercentage = pct }]);
       };
     };
-    if (out.size() > 0) ?out else null
+    if (out.size() > 0) ?out else {
+      Debug.print("parseStocks: parsed 0 valid stock quotes");
+      null
+    }
   };
 
   func parseCrypto(json : Text) : ?[CryptoQuote] {
     let objs = splitObjects(json);
-    if (objs.size() == 0) return null;
+    if (objs.size() == 0) {
+      Debug.print("parseCrypto: no JSON objects found in response");
+      return null;
+    };
     var out : [CryptoQuote] = [];
     for (obj in objs.vals()) {
       let rawSym = switch (extractStr(obj, "symbol")) { case (?v) v; case null "" };
-      let sym = if (Text.endsWith(rawSym, #text "USD") and rawSym.size() > 3) {
-        let arr = Text.toArray(rawSym);
+      let sym = if (rawSym.endsWith(#text "USD") and rawSym.size() > 3) {
+        let arr = rawSym.toArray();
         var s = "";
         var k = 0;
         while (k + 3 < arr.size()) { s := s # Text.fromChar(arr[k]); k += 1 };
@@ -352,15 +376,21 @@ persistent actor {
       let pr  = switch (extractNum(obj, "price"))             { case (?v) v; case null 0.0 };
       let pct = switch (extractNum(obj, "changesPercentage")) { case (?v) v; case null 0.0 };
       if (sym != "") {
-        out := Array.append(out, [{ symbol = sym; name = nm; price = pr; changesPercentage = pct }]);
+        out := out.concat([{ symbol = sym; name = nm; price = pr; changesPercentage = pct }]);
       };
     };
-    if (out.size() > 0) ?out else null
+    if (out.size() > 0) ?out else {
+      Debug.print("parseCrypto: parsed 0 valid crypto quotes");
+      null
+    }
   };
 
   func parseForex(json : Text) : ?[ForexRate] {
     let objs = splitObjects(json);
-    if (objs.size() == 0) return null;
+    if (objs.size() == 0) {
+      Debug.print("parseForex: no JSON objects found in response");
+      return null;
+    };
     let wanted : [Text] = ["USD/NGN", "USD/EUR", "USD/GBP", "USD/CNY", "USD/JPY"];
     var rates : [ForexRate] = [{ symbol = "USD"; rate = 1.0 }];
     for (obj in objs.vals()) {
@@ -370,7 +400,7 @@ persistent actor {
         if (ticker == w) { isWanted := true };
       };
       if (isWanted) {
-        let tArr = Text.toArray(ticker);
+        let tArr = ticker.toArray();
         let tLen = tArr.size();
         if (tLen >= 3) {
           var quoteSym = "";
@@ -379,18 +409,21 @@ persistent actor {
           while (k < tLen) { quoteSym := quoteSym # Text.fromChar(tArr[k]); k += 1 };
           let bid = switch (extractNum(obj, "bid")) { case (?v) v; case null 0.0 };
           if (bid > 0.0) {
-            rates := Array.append(rates, [{ symbol = quoteSym; rate = bid }]);
+            rates := rates.concat([{ symbol = quoteSym; rate = bid }]);
           };
         };
       };
     };
-    if (rates.size() > 1) ?rates else null
+    if (rates.size() > 1) ?rates else {
+      Debug.print("parseForex: no wanted forex pairs found in response");
+      null
+    }
   };
 
   func parseNews(json : Text) : ?[NewsArticle] {
     let articlesKey = "\"articles\":";
-    let keyChars = Text.toArray(articlesKey);
-    let jsonChars = Text.toArray(json);
+    let keyChars = articlesKey.toArray();
+    let jsonChars = json.toArray();
     let jLen = jsonChars.size();
     let kLen = keyChars.size();
     var startPos : ?Nat = null;
@@ -405,12 +438,21 @@ persistent actor {
       if (matched) { startPos := ?(i + kLen); i := jLen };
       i += 1;
     };
-    let arrStart = switch (startPos) { case null { return null }; case (?p) p };
+    let arrStart = switch (startPos) {
+      case null {
+        Debug.print("parseNews: 'articles' key not found in response");
+        return null;
+      };
+      case (?p) p;
+    };
     var arrStr = "";
     var k = arrStart;
     while (k < jLen) { arrStr := arrStr # Text.fromChar(jsonChars[k]); k += 1 };
     let objs = splitObjects(arrStr);
-    if (objs.size() == 0) return null;
+    if (objs.size() == 0) {
+      Debug.print("parseNews: no article objects found after 'articles' key");
+      return null;
+    };
     var out : [NewsArticle] = [];
     for (obj in objs.vals()) {
       let title = switch (extractStr(obj, "title"))       { case (?v) v; case null "" };
@@ -420,7 +462,7 @@ persistent actor {
       let desc  = switch (extractStr(obj, "description")) { case (?v) v; case null "" };
       let src = switch (extractStr(obj, "name")) { case (?v) v; case null "Unknown" };
       if (title != "" and title != "[Removed]") {
-        out := Array.append(out, [{
+        out := out.concat([{
           title = title;
           source = src;
           url = url;
@@ -430,14 +472,17 @@ persistent actor {
         }]);
       };
     };
-    if (out.size() > 0) ?out else null
+    if (out.size() > 0) ?out else {
+      Debug.print("parseNews: parsed 0 valid articles");
+      null
+    }
   };
 
   // Parse YouTube Data API v3 search response
   func parseYouTube(json : Text) : ?[YouTubeVideo] {
     let itemsKey = "\"items\":";
-    let keyChars = Text.toArray(itemsKey);
-    let jsonChars = Text.toArray(json);
+    let keyChars = itemsKey.toArray();
+    let jsonChars = json.toArray();
     let jLen = jsonChars.size();
     let kLen = keyChars.size();
     var startPos : ?Nat = null;
@@ -452,23 +497,35 @@ persistent actor {
       if (matched) { startPos := ?(i + kLen); i := jLen };
       i += 1;
     };
-    let arrStart = switch (startPos) { case null { return null }; case (?p) p };
+    let arrStart = switch (startPos) {
+      case null {
+        Debug.print("parseYouTube: 'items' key not found in response");
+        return null;
+      };
+      case (?p) p;
+    };
     var arrStr = "";
     var k = arrStart;
     while (k < jLen) { arrStr := arrStr # Text.fromChar(jsonChars[k]); k += 1 };
     let objs = splitObjects(arrStr);
-    if (objs.size() == 0) return null;
+    if (objs.size() == 0) {
+      Debug.print("parseYouTube: no item objects found after 'items' key");
+      return null;
+    };
     var out : [YouTubeVideo] = [];
     for (obj in objs.vals()) {
-      let vid    = switch (extractStr(obj, "videoId"))     { case (?v) v; case null "" };
-      let title  = switch (extractStr(obj, "title"))       { case (?v) v; case null "" };
+      let vid    = switch (extractStr(obj, "videoId"))      { case (?v) v; case null "" };
+      let title  = switch (extractStr(obj, "title"))        { case (?v) v; case null "" };
       let ch     = switch (extractStr(obj, "channelTitle")) { case (?v) v; case null "" };
-      let thumb  = switch (extractStr(obj, "url"))         { case (?v) v; case null "" };
+      let thumb  = switch (extractStr(obj, "url"))          { case (?v) v; case null "" };
       if (vid != "" and title != "") {
-        out := Array.append(out, [{ videoId = vid; title = title; thumbnail = thumb; channelTitle = ch }]);
+        out := out.concat([{ videoId = vid; title = title; thumbnail = thumb; channelTitle = ch }]);
       };
     };
-    if (out.size() > 0) ?out else null
+    if (out.size() > 0) ?out else {
+      Debug.print("parseYouTube: parsed 0 valid video items");
+      null
+    }
   };
 
   // ─── Historical Price Parser ─────────────────────────────────────────────
@@ -476,10 +533,9 @@ persistent actor {
   // FMP response: {"symbol":"AAPL","historical":[{"date":"2026-04-04","close":172.4,...},{...},...]
   // historical array is ordered newest-first; we want 7 entries oldest-first
   func parseHistoricalPrices(json : Text) : [Float] {
-    // Find "historical":
     let histKey = "\"historical\":";
-    let keyChars = Text.toArray(histKey);
-    let jsonChars = Text.toArray(json);
+    let keyChars = histKey.toArray();
+    let jsonChars = json.toArray();
     let jLen = jsonChars.size();
     let kLen = keyChars.size();
     var startPos : ?Nat = null;
@@ -494,13 +550,17 @@ persistent actor {
       if (matched) { startPos := ?(i + kLen); i := jLen };
       i += 1;
     };
-    let arrStart = switch (startPos) { case null { return [] }; case (?p) p };
+    let arrStart = switch (startPos) {
+      case null {
+        Debug.print("parseHistoricalPrices: 'historical' key not found");
+        return [];
+      };
+      case (?p) p;
+    };
     var arrStr = "";
     var k = arrStart;
     while (k < jLen) { arrStr := arrStr # Text.fromChar(jsonChars[k]); k += 1 };
-    // splitObjects extracts each {date,close,...} object
     let objs = splitObjects(arrStr);
-    // Take up to 7 entries (newest-first from API), extract close prices
     var closes : [Float] = [];
     var count = 0;
     for (obj in objs.vals()) {
@@ -508,7 +568,7 @@ persistent actor {
         let closeOpt = extractNum(obj, "close");
         switch (closeOpt) {
           case (?v) {
-            closes := Array.append(closes, [v]);
+            closes := closes.concat([v]);
             count += 1;
           };
           case null {};
@@ -516,15 +576,7 @@ persistent actor {
       };
     };
     // Reverse to get chronological order (oldest first)
-    let n = closes.size();
-    if (n == 0) return [];
-    var reversed : [Float] = [];
-    var ri = n;
-    while (ri > 0) {
-      ri -= 1;
-      reversed := Array.append(reversed, [closes[ri]]);
-    };
-    reversed
+    closes.reverse()
   };
 
   // ─── HTTP helper ───────────────────────────────────────────────────────
@@ -545,13 +597,13 @@ persistent actor {
     try {
       let resp = await (with cycles = 230_850_258_000) IC.http_request(req);
       if (resp.status >= 200 and resp.status < 300) {
-        Text.decodeUtf8(resp.body)
+        resp.body.decodeUtf8()
       } else null
     } catch (_) null
   };
 
   func httpPost(url : Text, body : Text, authHeader : Text) : async ?Text {
-    let bodyBytes = Text.encodeUtf8(body);
+    let bodyBytes = body.encodeUtf8();
     let req : IC.http_request_args = {
       url = url;
       method = #post;
@@ -568,7 +620,7 @@ persistent actor {
     };
     try {
       let resp = await (with cycles = 230_850_258_000) IC.http_request(req);
-      switch (Text.decodeUtf8(resp.body)) {
+      switch (resp.body.decodeUtf8()) {
         case (?text) ?text;
         case null null;
       }
@@ -648,7 +700,7 @@ persistent actor {
 
   // Replace spaces with '+' for URL query encoding
   func encodeQuery(q : Text) : Text {
-    let chars = Text.toArray(q);
+    let chars = q.toArray();
     var out = "";
     for (c in chars.vals()) {
       if (c == ' ') { out := out # "+" }
@@ -681,10 +733,7 @@ persistent actor {
     let twentyFourHoursNs : Int = 86_400_000_000_000;
 
     // Check cache first
-    let cacheMap = HashMap.fromIter<Text, HistoricalCache>(
-      historicalPriceCache.vals(), 32, Text.equal, Text.hash
-    );
-    switch (cacheMap.get(symbol)) {
+    switch (historicalPriceCache.get(symbol)) {
       case (?cached) {
         if (now - cached.fetchedAt < twentyFourHoursNs) {
           // Cache is fresh — return without hitting API
@@ -705,8 +754,7 @@ persistent actor {
 
     // Store in cache (even if empty, to avoid hammering API on repeated failures)
     if (prices.size() > 0) {
-      cacheMap.put(symbol, { prices; fetchedAt = now });
-      historicalPriceCache := Iter.toArray(cacheMap.entries());
+      historicalPriceCache.add(symbol, { prices; fetchedAt = now });
     };
 
     prices
@@ -717,7 +765,7 @@ persistent actor {
   public func addAlert(assetType : Text, symbol : Text, condition : Text, targetPrice : Float) : async Alert {
     let now = Int.abs(Time.now());
     alertCounter += 1;
-    let id = "alert_" # Nat.toText(alertCounter);
+    let id = "alert_" # alertCounter.toText();
     let newAlert : Alert = {
       id;
       assetType;
@@ -728,7 +776,7 @@ persistent actor {
       isTriggered = false;
       createdAt = now;
     };
-    alerts := Array.append(alerts, [newAlert]);
+    alerts := alerts.concat([newAlert]);
     newAlert
   };
 
@@ -738,7 +786,7 @@ persistent actor {
 
   public func updateAlert(id : Text, isActive : Bool) : async Bool {
     var found = false;
-    alerts := Array.map<Alert, Alert>(alerts, func(a) {
+    alerts := alerts.map<Alert, Alert>(func(a) {
       if (a.id == id) {
         found := true;
         { id = a.id; assetType = a.assetType; symbol = a.symbol; condition = a.condition;
@@ -750,13 +798,13 @@ persistent actor {
 
   public func deleteAlert(id : Text) : async Bool {
     let before = alerts.size();
-    alerts := Array.filter<Alert>(alerts, func(a) { a.id != id });
+    alerts := alerts.filter(func(a) { a.id != id });
     alerts.size() < before
   };
 
   public func markAlertTriggered(id : Text) : async Bool {
     var found = false;
-    alerts := Array.map<Alert, Alert>(alerts, func(a) {
+    alerts := alerts.map<Alert, Alert>(func(a) {
       if (a.id == id) {
         found := true;
         { id = a.id; assetType = a.assetType; symbol = a.symbol; condition = a.condition;
@@ -768,7 +816,7 @@ persistent actor {
 
   public func clearAlertTriggered(id : Text) : async Bool {
     var found = false;
-    alerts := Array.map<Alert, Alert>(alerts, func(a) {
+    alerts := alerts.map<Alert, Alert>(func(a) {
       if (a.id == id) {
         found := true;
         { id = a.id; assetType = a.assetType; symbol = a.symbol; condition = a.condition;
@@ -781,10 +829,7 @@ persistent actor {
   // ─── User Profile ───────────────────────────────────────────────────
 
   public query (msg) func getUserProfile() : async ?UserProfile {
-    let map = HashMap.fromIter<Principal, UserProfile>(
-      userProfiles.vals(), 10, Principal.equal, Principal.hash
-    );
-    map.get(msg.caller)
+    userProfiles.get(msg.caller)
   };
 
   public shared (msg) func saveUserProfile(
@@ -794,9 +839,6 @@ persistent actor {
     hideBalance : Bool,
     hideTransactions : Bool
   ) : async UserProfile {
-    let map = HashMap.fromIter<Principal, UserProfile>(
-      userProfiles.vals(), 10, Principal.equal, Principal.hash
-    );
     let profile : UserProfile = {
       displayName;
       preferredCurrency;
@@ -804,8 +846,7 @@ persistent actor {
       hideBalance;
       hideTransactions;
     };
-    map.put(msg.caller, profile);
-    userProfiles := Iter.toArray(map.entries());
+    userProfiles.add(msg.caller, profile);
     profile
   };
 
@@ -844,55 +885,41 @@ persistent actor {
 
   // ─── Wallet Persistent State ─────────────────────────────────────────────
 
-  var walletBalances : [(Principal, [WalletBalance])] = [];
-  var walletTransactions : [(Principal, [WalletTransaction])] = [];
-  var virtualAccounts : [(Principal, VirtualAccount)] = [];
-
-  // ─── Wallet Helpers ─────────────────────────────────────────────────────
-
-  func getBalanceMap() : HashMap.HashMap<Principal, [WalletBalance]> {
-    HashMap.fromIter<Principal, [WalletBalance]>(
-      walletBalances.vals(), 16, Principal.equal, Principal.hash
-    )
-  };
-
-  func getTxMap() : HashMap.HashMap<Principal, [WalletTransaction]> {
-    HashMap.fromIter<Principal, [WalletTransaction]>(
-      walletTransactions.vals(), 16, Principal.equal, Principal.hash
-    )
-  };
+  let walletBalances : Map.Map<Principal, [WalletBalance]> = Map.empty<Principal, [WalletBalance]>();
+  let walletTransactions : Map.Map<Principal, [WalletTransaction]> = Map.empty<Principal, [WalletTransaction]>();
+  let virtualAccounts : Map.Map<Principal, VirtualAccount> = Map.empty<Principal, VirtualAccount>();
 
   // ─── Wallet Public API ────────────────────────────────────────────────
 
   public query (msg) func getWalletBalances() : async [WalletBalance] {
-    let map = getBalanceMap();
-    switch (map.get(msg.caller)) {
+    switch (walletBalances.get(msg.caller)) {
       case (?bals) bals;
       case null [];
     }
   };
 
   public query (msg) func getWalletTransactions() : async [WalletTransaction] {
-    let map = getTxMap();
-    switch (map.get(msg.caller)) {
+    switch (walletTransactions.get(msg.caller)) {
       case (?txs) txs;
       case null [];
     }
   };
 
   public shared (msg) func updateWalletBalance(currency : Text, newAmount : Float) : async WalletBalance {
-    let map = getBalanceMap();
-    let existing = switch (map.get(msg.caller)) { case (?b) b; case null [] };
-    let updated = Array.map(existing, func(b) {
+    // Principal validation: block anonymous callers
+    if (msg.caller.isAnonymous()) {
+      return { currency; amount = 0.0 };
+    };
+    let existing = switch (walletBalances.get(msg.caller)) { case (?b) b; case null [] };
+    let updated = existing.map(func(b) {
       if (b.currency == currency) { { currency; amount = newAmount } } else b
     });
-    let found = Array.find(existing, func(b) { b.currency == currency });
+    let found = existing.find(func(b) { b.currency == currency });
     let final = switch (found) {
       case (?_) updated;
-      case null Array.append(updated, [{ currency; amount = newAmount }]);
+      case null updated.concat([{ currency; amount = newAmount }]);
     };
-    map.put(msg.caller, final);
-    walletBalances := Iter.toArray(map.entries());
+    walletBalances.add(msg.caller, final);
     { currency; amount = newAmount }
   };
 
@@ -904,13 +931,16 @@ persistent actor {
     desc : Text,
     status : Text
   ) : async WalletTransaction {
+    // Principal validation: block anonymous callers
+    if (msg.caller.isAnonymous()) {
+      let id = "tx-anon";
+      return { id; txType; currency; amount; date; desc; status };
+    };
     let now = Int.abs(Time.now());
-    let id = "tx-" # Nat.toText(now);
+    let id = "tx-" # now.toText();
     let newTx : WalletTransaction = { id; txType; currency; amount; date; desc; status };
-    let map = getTxMap();
-    let existing = switch (map.get(msg.caller)) { case (?t) t; case null [] };
-    map.put(msg.caller, Array.append([newTx], existing));
-    walletTransactions := Iter.toArray(map.entries());
+    let existing = switch (walletTransactions.get(msg.caller)) { case (?t) t; case null [] };
+    walletTransactions.add(msg.caller, [newTx].concat(existing));
     newTx
   };
 
@@ -930,7 +960,7 @@ persistent actor {
     dateStr : Text
   ) : async SendMoneyResult {
     // Block anonymous callers
-    if (Principal.isAnonymous(msg.caller)) {
+    if (msg.caller.isAnonymous()) {
       return #err("You must be signed in to send money.");
     };
 
@@ -950,13 +980,9 @@ persistent actor {
       return #err("You cannot send money to yourself.");
     };
 
-    // Load balance and tx maps
-    let balMap = getBalanceMap();
-    let txMap = getTxMap();
-
     // Check sender balance
-    let senderBals = switch (balMap.get(msg.caller)) { case (?b) b; case null [] };
-    let senderBal : Float = switch (Array.find(senderBals, func(b) { b.currency == currency })) {
+    let senderBals = switch (walletBalances.get(msg.caller)) { case (?b) b; case null [] };
+    let senderBal : Float = switch (senderBals.find(func(b) { b.currency == currency })) {
       case (?b) b.amount;
       case null 0.0;
     };
@@ -965,77 +991,65 @@ persistent actor {
     };
 
     // Check recipient exists in canister
-    let recipientBals = switch (balMap.get(recipient)) {
+    let recipientBals = switch (walletBalances.get(recipient)) {
       case (?b) b;
       case null { return #err("Recipient not found — they must have a Stancard account.") };
     };
 
     // Generate shared reference
     let now = Int.abs(Time.now());
-    let txId = "tx-" # Nat.toText(now);
-    let reference = "REF-" # Nat.toText(now);
+    let txId = "tx-" # now.toText();
+    let reference = "REF-" # now.toText();
 
     // Deduct from sender
-    let updatedSenderBals = Array.map(senderBals, func(b) {
+    let updatedSenderBals = senderBals.map(func(b) {
       if (b.currency == currency) { { currency; amount = senderBal - amount } } else b
     });
-    balMap.put(msg.caller, updatedSenderBals);
+    walletBalances.add(msg.caller, updatedSenderBals);
 
     // Credit recipient
-    let recipientCurBal : Float = switch (Array.find(recipientBals, func(b) { b.currency == currency })) {
+    let recipientCurBal : Float = switch (recipientBals.find(func(b) { b.currency == currency })) {
       case (?b) b.amount;
       case null 0.0;
     };
-    let hasRecipientCurrency = switch (Array.find(recipientBals, func(b) { b.currency == currency })) {
+    let hasRecipientCurrency = switch (recipientBals.find(func(b) { b.currency == currency })) {
       case (?_) true;
       case null false;
     };
     let updatedRecipientBals = if (hasRecipientCurrency) {
-      Array.map(recipientBals, func(b) {
+      recipientBals.map(func(b) {
         if (b.currency == currency) { { currency; amount = recipientCurBal + amount } } else b
       })
     } else {
-      Array.append(recipientBals, [{ currency; amount }])
+      recipientBals.concat([{ currency; amount }])
     };
-    balMap.put(recipient, updatedRecipientBals);
-    walletBalances := Iter.toArray(balMap.entries());
+    walletBalances.add(recipient, updatedRecipientBals);
 
     // Record sender tx
     let senderDesc = "Sent to " # recipientPrincipal;
     let senderTx : WalletTransaction = { id = txId # "-s"; txType = "send"; currency; amount; date = dateStr; desc = senderDesc; status = "completed" };
-    let senderTxs = switch (txMap.get(msg.caller)) { case (?t) t; case null [] };
-    txMap.put(msg.caller, Array.append([senderTx], senderTxs));
+    let senderTxs = switch (walletTransactions.get(msg.caller)) { case (?t) t; case null [] };
+    walletTransactions.add(msg.caller, [senderTx].concat(senderTxs));
 
     // Record recipient tx
-    let recipientDesc = "Received from " # Principal.toText(msg.caller);
+    let recipientDesc = "Received from " # msg.caller.toText();
     let recipientTx : WalletTransaction = { id = txId # "-r"; txType = "receive"; currency; amount; date = dateStr; desc = recipientDesc; status = "completed" };
-    let recipientTxs = switch (txMap.get(recipient)) { case (?t) t; case null [] };
-    txMap.put(recipient, Array.append([recipientTx], recipientTxs));
-    walletTransactions := Iter.toArray(txMap.entries());
+    let recipientTxs = switch (walletTransactions.get(recipient)) { case (?t) t; case null [] };
+    walletTransactions.add(recipient, [recipientTx].concat(recipientTxs));
 
     #ok({ txId; reference; recipientId = recipientPrincipal; amount; currency; timestamp = dateStr })
   };
 
 
-  // ─── Virtual Account Helpers ──────────────────────────────────────────────
-
-  func getVAMap() : HashMap.HashMap<Principal, VirtualAccount> {
-    HashMap.fromIter<Principal, VirtualAccount>(
-      virtualAccounts.vals(), 16, Principal.equal, Principal.hash
-    )
-  };
-
   // ─── Virtual Account Public API ─────────────────────────────────────────────
 
   public query (msg) func getVirtualAccount() : async ?VirtualAccount {
-    let map = getVAMap();
-    map.get(msg.caller)
+    virtualAccounts.get(msg.caller)
   };
 
   public shared (msg) func createVirtualAccount(displayName : Text) : async VirtualAccountResult {
     // Return existing account if already stored (expiry check is done client-side)
-    let map = getVAMap();
-    switch (map.get(msg.caller)) {
+    switch (virtualAccounts.get(msg.caller)) {
       case (?existing) { return #ok(existing) };
       case null {};
     };
@@ -1044,8 +1058,8 @@ persistent actor {
 
   func doCreateVirtualAccount(caller : Principal, displayName : Text) : async VirtualAccountResult {
     let flwSecretKey = "FLWSECK-dfba4842dc7dcde8b394a8a0426d1a96-19d61e17ff4vt-X";
-    let principalText = Principal.toText(caller);
-    let principalArr = Text.toArray(principalText);
+    let principalText = caller.toText();
+    let principalArr = principalText.toArray();
     var refSuffix = "";
     var ri = 0;
     while (ri < 10 and ri < principalArr.size()) {
@@ -1053,7 +1067,7 @@ persistent actor {
       ri += 1;
     };
     let now = Int.abs(Time.now());
-    let reference = "STANCARD-" # refSuffix # "-" # Nat.toText(now);
+    let reference = "STANCARD-" # refSuffix # "-" # now.toText();
     let bodyJson = "{\"email\":\"user@stancard.app\",\"is_permanent\":false,\"tx_ref\":\"" # reference # "\",\"amount\":0,\"currency\":\"NGN\",\"narration\":\"" # displayName # "\"}";
     let resp = await httpPost(
       "https://api.flutterwave.com/v3/virtual-account-numbers",
@@ -1095,18 +1109,14 @@ persistent actor {
           return #err("Unable to generate account number. Please try again.");
         };
         let va : VirtualAccount = { accountNumber; bankName; accountName; expiresAt; reference };
-        let vaMap = getVAMap();
-        vaMap.put(caller, va);
-        virtualAccounts := Iter.toArray(vaMap.entries());
+        virtualAccounts.add(caller, va);
         #ok(va)
       };
     }
   };
 
   public shared (msg) func refreshVirtualAccount(displayName : Text) : async VirtualAccountResult {
-    let map = getVAMap();
-    map.delete(msg.caller);
-    virtualAccounts := Iter.toArray(map.entries());
+    virtualAccounts.remove(msg.caller);
     await doCreateVirtualAccount(msg.caller, displayName)
   };
 
@@ -1194,8 +1204,8 @@ persistent actor {
   };
 
   // Persistent state
-  var riderRoutes : [(Principal, [RiderRoute])] = [];
-  var packages : [(Principal, [Package])] = [];
+  let riderRoutes : Map.Map<Principal, [RiderRoute]> = Map.empty<Principal, [RiderRoute]>();
+  let packages : Map.Map<Principal, [Package]> = Map.empty<Principal, [Package]>();
   var deliveryRequests : [DeliveryRequest] = [];
   var routeCounter : Nat = 0;
   var packageCounter : Nat = 0;
@@ -1205,10 +1215,9 @@ persistent actor {
   var shipmentTrackings : [ShipmentTracking] = [];
   var trackingCounter : Nat = 0;
 
-  // Helpers
   // Zero-pad a Nat to 8 digits for tracking codes
   func zeroPad8(n : Nat) : Text {
-    let s = Nat.toText(n);
+    let s = n.toText();
     let len = s.size();
     if (len >= 8) { s }
     else {
@@ -1219,22 +1228,10 @@ persistent actor {
     }
   };
 
-  func getRouteMap() : HashMap.HashMap<Principal, [RiderRoute]> {
-    HashMap.fromIter<Principal, [RiderRoute]>(
-      riderRoutes.vals(), 16, Principal.equal, Principal.hash
-    )
-  };
-
-  func getPackageMap() : HashMap.HashMap<Principal, [Package]> {
-    HashMap.fromIter<Principal, [Package]>(
-      packages.vals(), 16, Principal.equal, Principal.hash
-    )
-  };
-
   func textLower(t : Text) : Text {
-    Text.map(t, func(c) {
+    t.map(func(c) {
       if (c >= 'A' and c <= 'Z') {
-        Char.fromNat32(Char.toNat32(c) + 32)
+        Char.fromNat32(c.toNat32() + 32)
       } else c
     })
   };
@@ -1249,11 +1246,11 @@ persistent actor {
     travelDate : Text,
     cargoSpace : Text
   ) : async MoveResult {
-    if (Principal.isAnonymous(msg.caller)) {
+    if (msg.caller.isAnonymous()) {
       return #err("You must be signed in to register a route.");
     };
     routeCounter += 1;
-    let routeId = "route-" # Nat.toText(routeCounter) # "-" # Nat.toText(Int.abs(Time.now()));
+    let routeId = "route-" # routeCounter.toText() # "-" # Int.abs(Time.now()).toText();
     let route : RiderRoute = {
       routeId;
       riderPrincipal = msg.caller;
@@ -1266,10 +1263,8 @@ persistent actor {
       cargoSpace;
       createdAt = Time.now();
     };
-    let map = getRouteMap();
-    let existing = switch (map.get(msg.caller)) { case (?r) r; case null [] };
-    map.put(msg.caller, Array.append(existing, [route]));
-    riderRoutes := Iter.toArray(map.entries());
+    let existing = switch (riderRoutes.get(msg.caller)) { case (?r) r; case null [] };
+    riderRoutes.add(msg.caller, existing.concat([route]));
     #ok(routeId)
   };
 
@@ -1284,22 +1279,20 @@ persistent actor {
     travelDate : Text,
     cargoSpace : Text
   ) : async MoveResult {
-    if (Principal.isAnonymous(msg.caller)) {
+    if (msg.caller.isAnonymous()) {
       return #err("You must be signed in.");
     };
-    let map = getRouteMap();
-    let existing = switch (map.get(msg.caller)) { case (?r) r; case null [] };
-    let found = Array.find(existing, func(r) { r.routeId == routeId });
+    let existing = switch (riderRoutes.get(msg.caller)) { case (?r) r; case null [] };
+    let found = existing.find(func(r) { r.routeId == routeId });
     switch (found) {
       case null { return #err("Route not found.") };
       case (?_) {
-        let updated = Array.map(existing, func(r) {
+        let updated = existing.map(func(r) {
           if (r.routeId == routeId) {
             { routeId; riderPrincipal = msg.caller; vehicleType; departureCity; departureCountry; destinationCity; destinationCountry; travelDate; cargoSpace; createdAt = r.createdAt }
           } else r
         });
-        map.put(msg.caller, updated);
-        riderRoutes := Iter.toArray(map.entries());
+        riderRoutes.add(msg.caller, updated);
         #ok("Route updated.")
       };
     }
@@ -1307,29 +1300,25 @@ persistent actor {
 
   // Delete a route
   public shared (msg) func deleteRoute(routeId : Text) : async MoveResult {
-    if (Principal.isAnonymous(msg.caller)) {
+    if (msg.caller.isAnonymous()) {
       return #err("You must be signed in.");
     };
-    let map = getRouteMap();
-    let existing = switch (map.get(msg.caller)) { case (?r) r; case null [] };
-    let filtered = Array.filter(existing, func(r) { r.routeId != routeId });
-    map.put(msg.caller, filtered);
-    riderRoutes := Iter.toArray(map.entries());
+    let existing = switch (riderRoutes.get(msg.caller)) { case (?r) r; case null [] };
+    let filtered = existing.filter(func(r) { r.routeId != routeId });
+    riderRoutes.add(msg.caller, filtered);
     #ok("Route deleted.")
   };
 
   // Get caller's routes
   public query (msg) func getRiderRoutes() : async [RiderRoute] {
-    let map = getRouteMap();
-    switch (map.get(msg.caller)) { case (?r) r; case null [] }
+    switch (riderRoutes.get(msg.caller)) { case (?r) r; case null [] }
   };
 
   // Get all routes (for browse/guest view)
   public query func getAllRoutes() : async [RiderRoute] {
-    let map = getRouteMap();
     var all : [RiderRoute] = [];
-    for ((_, routes) in map.entries()) {
-      all := Array.append(all, routes);
+    for ((_, routes) in riderRoutes.entries()) {
+      all := all.concat(routes);
     };
     all
   };
@@ -1343,11 +1332,11 @@ persistent actor {
     weightKg : Float,
     description : Text
   ) : async MoveResult {
-    if (Principal.isAnonymous(msg.caller)) {
+    if (msg.caller.isAnonymous()) {
       return #err("You must be signed in to post a package.");
     };
     packageCounter += 1;
-    let packageId = "pkg-" # Nat.toText(packageCounter) # "-" # Nat.toText(Int.abs(Time.now()));
+    let packageId = "pkg-" # packageCounter.toText() # "-" # Int.abs(Time.now()).toText();
     let pkg : Package = {
       packageId;
       senderPrincipal = msg.caller;
@@ -1359,31 +1348,27 @@ persistent actor {
       description;
       createdAt = Time.now();
     };
-    let map = getPackageMap();
-    let existing = switch (map.get(msg.caller)) { case (?p) p; case null [] };
-    map.put(msg.caller, Array.append(existing, [pkg]));
-    packages := Iter.toArray(map.entries());
+    let existing = switch (packages.get(msg.caller)) { case (?p) p; case null [] };
+    packages.add(msg.caller, existing.concat([pkg]));
     #ok(packageId)
   };
 
   // Get caller's packages
   public query (msg) func getSenderPackages() : async [Package] {
-    let map = getPackageMap();
-    switch (map.get(msg.caller)) { case (?p) p; case null [] }
+    switch (packages.get(msg.caller)) { case (?p) p; case null [] }
   };
 
   // Get matched riders for a destination
   public query func getMatchedRiders(destinationCity : Text, destinationCountry : Text) : async [RiderRoute] {
     let targetCity = textLower(destinationCity);
     let targetCountry = textLower(destinationCountry);
-    let map = getRouteMap();
     var matched : [RiderRoute] = [];
-    for ((_, routes) in map.entries()) {
+    for ((_, routes) in riderRoutes.entries()) {
       for (route in routes.vals()) {
         let matchCity = textLower(route.destinationCity) == targetCity;
         let matchCountry = textLower(route.destinationCountry) == targetCountry;
         if (matchCity and matchCountry) {
-          matched := Array.append(matched, [route]);
+          matched := matched.concat([route]);
         };
       };
     };
@@ -1396,11 +1381,11 @@ persistent actor {
     routeId : Text,
     riderPrincipalText : Text
   ) : async MoveResult {
-    if (Principal.isAnonymous(msg.caller)) {
+    if (msg.caller.isAnonymous()) {
       return #err("You must be signed in to send a request.");
     };
     // Block duplicate requests for same package+route
-    let dupCheck = Array.find(deliveryRequests, func(r) {
+    let dupCheck = deliveryRequests.find(func(r) {
       r.packageId == packageId and r.routeId == routeId and Principal.equal(r.senderPrincipal, msg.caller)
     });
     switch (dupCheck) {
@@ -1413,7 +1398,7 @@ persistent actor {
       case (?p) p;
     };
     requestCounter += 1;
-    let requestId = "req-" # Nat.toText(requestCounter) # "-" # Nat.toText(Int.abs(Time.now()));
+    let requestId = "req-" # requestCounter.toText() # "-" # Int.abs(Time.now()).toText();
     let req : DeliveryRequest = {
       requestId;
       packageId;
@@ -1423,25 +1408,23 @@ persistent actor {
       status = "Pending";
       createdAt = Time.now();
     };
-    deliveryRequests := Array.append(deliveryRequests, [req]);
+    deliveryRequests := deliveryRequests.concat([req]);
     #ok(requestId)
   };
 
   // Get incoming requests for rider (with full package details)
   public query (msg) func getIncomingRequests() : async [RequestWithPackage] {
-    let routeMap = getRouteMap();
-    let myRoutes = switch (routeMap.get(msg.caller)) { case (?r) r; case null [] };
-    let myRouteIds = Array.map(myRoutes, func(r) { r.routeId });
-    let pkgMap = getPackageMap();
+    let myRoutes = switch (riderRoutes.get(msg.caller)) { case (?r) r; case null [] };
+    let myRouteIds = myRoutes.map(func(r) { r.routeId });
     var result : [RequestWithPackage] = [];
     for (req in deliveryRequests.vals()) {
-      let isMyRoute = Array.find(myRouteIds, func(id) { id == req.routeId });
+      let isMyRoute = myRouteIds.find(func(id) { id == req.routeId });
       switch (isMyRoute) {
         case null {};
         case (?_) {
           // Find the package
           var foundPkg : ?Package = null;
-          for ((_, pkgs) in pkgMap.entries()) {
+          for ((_, pkgs) in packages.entries()) {
             for (pkg in pkgs.vals()) {
               if (pkg.packageId == req.packageId) {
                 foundPkg := ?pkg;
@@ -1465,7 +1448,7 @@ persistent actor {
                 weightKg = pkg.weightKg;
                 description = pkg.description;
               };
-              result := Array.append(result, [rwp]);
+              result := result.concat([rwp]);
             };
           };
         };
@@ -1476,10 +1459,10 @@ persistent actor {
 
   // Respond to a delivery request (accept or decline)
   public shared (msg) func respondToRequest(requestId : Text, accept : Bool) : async MoveResult {
-    if (Principal.isAnonymous(msg.caller)) {
+    if (msg.caller.isAnonymous()) {
       return #err("You must be signed in.");
     };
-    let found = Array.find(deliveryRequests, func(r) { r.requestId == requestId });
+    let found = deliveryRequests.find(func(r) { r.requestId == requestId });
     switch (found) {
       case null { return #err("Request not found.") };
       case (?req) {
@@ -1487,7 +1470,7 @@ persistent actor {
           return #err("You are not the rider for this request.");
         };
         let newStatus = if (accept) "Accepted" else "Declined";
-        deliveryRequests := Array.map(deliveryRequests, func(r) {
+        deliveryRequests := deliveryRequests.map<DeliveryRequest, DeliveryRequest>(func(r) {
           if (r.requestId == requestId) {
             { requestId = r.requestId; packageId = r.packageId; senderPrincipal = r.senderPrincipal; riderPrincipal = r.riderPrincipal; routeId = r.routeId; status = newStatus; createdAt = r.createdAt }
           } else r
@@ -1505,7 +1488,7 @@ persistent actor {
             entries = [entry];
             currentStatus = "Accepted";
           };
-          shipmentTrackings := Array.append(shipmentTrackings, [tracking]);
+          shipmentTrackings := shipmentTrackings.concat([tracking]);
         };
         #ok("Request " # newStatus # ".")
       };
@@ -1514,24 +1497,24 @@ persistent actor {
 
   // Get sender's own requests
   public query (msg) func getSenderRequests() : async [DeliveryRequest] {
-    Array.filter(deliveryRequests, func(r) { Principal.equal(r.senderPrincipal, msg.caller) })
+    deliveryRequests.filter(func(r) { Principal.equal(r.senderPrincipal, msg.caller) })
   };
 
   // Get rider's accepted deliveries (legacy, returns only Accepted status)
   public query (msg) func getAcceptedDeliveries() : async [DeliveryRequest] {
-    Array.filter(deliveryRequests, func(r) {
+    deliveryRequests.filter(func(r) {
       Principal.equal(r.riderPrincipal, msg.caller) and r.status == "Accepted"
     })
   };
 
   // Get rider's accepted deliveries enriched with tracking info
   public query (msg) func getAcceptedDeliveriesWithTracking() : async [AcceptedDeliveryWithTracking] {
-    let active = Array.filter(deliveryRequests, func(r) {
+    let active = deliveryRequests.filter(func(r) {
       Principal.equal(r.riderPrincipal, msg.caller) and
       (r.status == "Accepted" or r.status == "In Transit" or r.status == "Delivered")
     });
-    Array.map(active, func(r) {
-      let trackOpt = Array.find(shipmentTrackings, func(t) { t.requestId == r.requestId });
+    active.map<DeliveryRequest, AcceptedDeliveryWithTracking>(func(r) {
+      let trackOpt = shipmentTrackings.find(func(t) { t.requestId == r.requestId });
       let (code, entries) = switch (trackOpt) {
         case (?t) (t.trackingCode, t.entries);
         case null ("", []);
@@ -1552,10 +1535,10 @@ persistent actor {
 
   // Update shipment status (rider only, linear progression)
   public shared (msg) func updateShipmentStatus(requestId : Text, newStatus : Text) : async MoveResult {
-    if (Principal.isAnonymous(msg.caller)) {
+    if (msg.caller.isAnonymous()) {
       return #err("You must be signed in.");
     };
-    let reqOpt = Array.find(deliveryRequests, func(r) { r.requestId == requestId });
+    let reqOpt = deliveryRequests.find(func(r) { r.requestId == requestId });
     switch (reqOpt) {
       case null { return #err("Request not found.") };
       case (?req) {
@@ -1570,16 +1553,16 @@ persistent actor {
           return #err("Invalid status transition from " # currentStatus # " to " # newStatus # ".");
         };
         // Update delivery request status
-        deliveryRequests := Array.map(deliveryRequests, func(r) {
+        deliveryRequests := deliveryRequests.map<DeliveryRequest, DeliveryRequest>(func(r) {
           if (r.requestId == requestId) {
             { requestId = r.requestId; packageId = r.packageId; senderPrincipal = r.senderPrincipal; riderPrincipal = r.riderPrincipal; routeId = r.routeId; status = newStatus; createdAt = r.createdAt }
           } else r
         });
         // Append tracking entry
         let entry : TrackingEntry = { status = newStatus; timestamp = Time.now() };
-        shipmentTrackings := Array.map(shipmentTrackings, func(t) {
+        shipmentTrackings := shipmentTrackings.map<ShipmentTracking, ShipmentTracking>(func(t) {
           if (t.requestId == requestId) {
-            { trackingCode = t.trackingCode; requestId = t.requestId; packageId = t.packageId; entries = Array.append(t.entries, [entry]); currentStatus = newStatus }
+            { trackingCode = t.trackingCode; requestId = t.requestId; packageId = t.packageId; entries = t.entries.concat([entry]); currentStatus = newStatus }
           } else t
         });
         #ok("Status updated to " # newStatus # ".")
@@ -1589,20 +1572,20 @@ persistent actor {
 
   // Public tracking lookup by code (no auth required)
   public query func getTrackingByCode(code : Text) : async ?ShipmentTracking {
-    Array.find(shipmentTrackings, func(t) { t.trackingCode == code })
+    shipmentTrackings.find(func(t) { t.trackingCode == code })
   };
 
   // Public tracking lookup by request ID (no auth required)
   public query func getTrackingByRequestId(requestId : Text) : async ?ShipmentTracking {
-    Array.find(shipmentTrackings, func(t) { t.requestId == requestId })
+    shipmentTrackings.find(func(t) { t.requestId == requestId })
   };
 
   // Get tracking for sender's requests
   public query (msg) func getSenderTrackings() : async [ShipmentTracking] {
-    let myRequests = Array.filter(deliveryRequests, func(r) { Principal.equal(r.senderPrincipal, msg.caller) });
-    let myRequestIds = Array.map(myRequests, func(r) { r.requestId });
-    Array.filter(shipmentTrackings, func(t) {
-      switch (Array.find(myRequestIds, func(id) { id == t.requestId })) {
+    let myRequests = deliveryRequests.filter(func(r) { Principal.equal(r.senderPrincipal, msg.caller) });
+    let myRequestIds = myRequests.map(func(r) { r.requestId });
+    shipmentTrackings.filter(func(t) {
+      switch (myRequestIds.find(func(id) { id == t.requestId })) {
         case (?_) true;
         case null false;
       }
@@ -1614,9 +1597,8 @@ persistent actor {
 
   // Get caller's balance for a specific currency
   public query (msg) func getWalletBalance(currency : Text) : async Float {
-    let map = getBalanceMap();
-    let bals = switch (map.get(msg.caller)) { case (?b) b; case null [] };
-    switch (Array.find(bals, func(b) { b.currency == currency })) {
+    let bals = switch (walletBalances.get(msg.caller)) { case (?b) b; case null [] };
+    switch (bals.find(func(b) { b.currency == currency })) {
       case (?b) b.amount;
       case null 0.0;
     }
@@ -1633,7 +1615,7 @@ persistent actor {
     method : Text,
     dateStr : Text
   ) : async MoveResult {
-    if (Principal.isAnonymous(msg.caller)) {
+    if (msg.caller.isAnonymous()) {
       return #err("You must be signed in to make a payment.");
     };
 
@@ -1646,33 +1628,30 @@ persistent actor {
 
     // If wallet method, validate and deduct balance
     if (method == "wallet") {
-      let balMap = getBalanceMap();
-      let bals = switch (balMap.get(msg.caller)) { case (?b) b; case null [] };
-      let curBal : Float = switch (Array.find(bals, func(b) { b.currency == currency })) {
+      let bals = switch (walletBalances.get(msg.caller)) { case (?b) b; case null [] };
+      let curBal : Float = switch (bals.find(func(b) { b.currency == currency })) {
         case (?b) b.amount;
         case null 0.0;
       };
       if (curBal < amount) {
         return #err("Insufficient wallet balance.");
       };
-      // Deduct
-      let hasCur = switch (Array.find(bals, func(b) { b.currency == currency })) {
+      let hasCur = switch (bals.find(func(b) { b.currency == currency })) {
         case (?_) true;
         case null false;
       };
       let updatedBals = if (hasCur) {
-        Array.map(bals, func(b) {
+        bals.map(func(b) {
           if (b.currency == currency) { { currency; amount = curBal - amount } } else b
         })
       } else {
         bals // shouldn't happen if balance check passed
       };
-      balMap.put(msg.caller, updatedBals);
-      walletBalances := Iter.toArray(balMap.entries());
+      walletBalances.add(msg.caller, updatedBals);
     };
 
     // Block duplicate requests for same package+route
-    let dupCheck = Array.find(deliveryRequests, func(r) {
+    let dupCheck = deliveryRequests.find(func(r) {
       r.packageId == packageId and r.routeId == routeId and Principal.equal(r.senderPrincipal, msg.caller)
     });
     switch (dupCheck) {
@@ -1682,7 +1661,7 @@ persistent actor {
 
     // Create delivery request
     requestCounter += 1;
-    let requestId = "req-" # Nat.toText(requestCounter) # "-" # Nat.toText(Int.abs(Time.now()));
+    let requestId = "req-" # requestCounter.toText() # "-" # Int.abs(Time.now()).toText();
     let req : DeliveryRequest = {
       requestId;
       packageId;
@@ -1692,17 +1671,15 @@ persistent actor {
       status = "Pending";
       createdAt = Time.now();
     };
-    deliveryRequests := Array.append(deliveryRequests, [req]);
+    deliveryRequests := deliveryRequests.concat([req]);
 
     // Record transaction in Stancard Pay history
     let txNow = Int.abs(Time.now());
-    let txId = "tx-move-" # Nat.toText(txNow);
+    let txId = "tx-move-" # txNow.toText();
     let desc = "Move delivery fee — " # packageId;
     let newTx : WalletTransaction = { id = txId; txType = "send"; currency; amount; date = dateStr; desc; status = "completed" };
-    let txMap = getTxMap();
-    let existingTxs = switch (txMap.get(msg.caller)) { case (?t) t; case null [] };
-    txMap.put(msg.caller, Array.append([newTx], existingTxs));
-    walletTransactions := Iter.toArray(txMap.entries());
+    let existingTxs = switch (walletTransactions.get(msg.caller)) { case (?t) t; case null [] };
+    walletTransactions.add(msg.caller, [newTx].concat(existingTxs));
 
     #ok(requestId)
   };

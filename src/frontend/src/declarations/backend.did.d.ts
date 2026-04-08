@@ -10,53 +10,222 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
-export interface StockQuote {
-  symbol: string;
-  name: string;
-  price: number;
-  changesPercentage: number;
+export interface AcceptedDeliveryWithTracking {
+  'status' : string,
+  'trackingCode' : string,
+  'requestId' : string,
+  'riderPrincipal' : Principal,
+  'createdAt' : bigint,
+  'senderPrincipal' : Principal,
+  'routeId' : string,
+  'trackingEntries' : Array<TrackingEntry>,
+  'packageId' : string,
 }
-
-export interface ForexRate {
-  symbol: string;
-  rate: number;
+export interface Alert {
+  'id' : string,
+  'createdAt' : bigint,
+  'targetPrice' : number,
+  'isActive' : boolean,
+  'assetType' : string,
+  'isTriggered' : boolean,
+  'symbol' : string,
+  'condition' : string,
 }
-
 export interface CryptoQuote {
-  symbol: string;
-  name: string;
-  price: number;
-  changesPercentage: number;
+  'name' : string,
+  'changesPercentage' : number,
+  'price' : number,
+  'symbol' : string,
 }
-
+export interface DeliveryRequest {
+  'status' : string,
+  'requestId' : string,
+  'riderPrincipal' : Principal,
+  'createdAt' : bigint,
+  'senderPrincipal' : Principal,
+  'routeId' : string,
+  'packageId' : string,
+}
+export interface ForexRate { 'rate' : number, 'symbol' : string }
 export interface MarketData {
-  stocks: StockQuote[];
-  forex: ForexRate[];
-  crypto: CryptoQuote[];
-  lastUpdated: bigint;
-  success: boolean;
+  'forex' : Array<ForexRate>,
+  'stocks' : Array<StockQuote>,
+  'lastUpdated' : bigint,
+  'crypto' : Array<CryptoQuote>,
+  'success' : boolean,
 }
-
+export type MoveResult = { 'ok' : string } |
+  { 'err' : string };
 export interface NewsArticle {
-  title: string;
-  source: string;
-  url: string;
-  urlToImage: string;
-  publishedAt: string;
-  description: string;
+  'url' : string,
+  'title' : string,
+  'source' : string,
+  'urlToImage' : string,
+  'publishedAt' : string,
+  'description' : string,
 }
-
 export interface NewsData {
-  articles: NewsArticle[];
-  lastUpdated: bigint;
-  success: boolean;
+  'articles' : Array<NewsArticle>,
+  'lastUpdated' : bigint,
+  'success' : boolean,
 }
-
+export interface Package {
+  'createdAt' : bigint,
+  'size' : string,
+  'description' : string,
+  'destinationCity' : string,
+  'weightKg' : number,
+  'senderPrincipal' : Principal,
+  'destinationCountry' : string,
+  'packageId' : string,
+  'pickupLocation' : string,
+}
+export interface RequestWithPackage {
+  'status' : string,
+  'requestId' : string,
+  'createdAt' : bigint,
+  'size' : string,
+  'description' : string,
+  'destinationCity' : string,
+  'weightKg' : number,
+  'senderPrincipal' : Principal,
+  'routeId' : string,
+  'destinationCountry' : string,
+  'packageId' : string,
+  'pickupLocation' : string,
+}
+export interface RiderRoute {
+  'vehicleType' : string,
+  'riderPrincipal' : Principal,
+  'departureCountry' : string,
+  'departureCity' : string,
+  'createdAt' : bigint,
+  'destinationCity' : string,
+  'routeId' : string,
+  'travelDate' : string,
+  'destinationCountry' : string,
+  'cargoSpace' : string,
+}
+export type SendMoneyResult = {
+    'ok' : {
+      'txId' : string,
+      'reference' : string,
+      'currency' : string,
+      'timestamp' : string,
+      'amount' : number,
+      'recipientId' : string,
+    }
+  } |
+  { 'err' : string };
+export interface ShipmentTracking {
+  'trackingCode' : string,
+  'requestId' : string,
+  'entries' : Array<TrackingEntry>,
+  'currentStatus' : string,
+  'packageId' : string,
+}
+export interface StockQuote {
+  'name' : string,
+  'changesPercentage' : number,
+  'price' : number,
+  'symbol' : string,
+}
+export interface TrackingEntry { 'status' : string, 'timestamp' : bigint }
+export interface UserProfile {
+  'hideBalance' : boolean,
+  'hideTransactions' : boolean,
+  'displayName' : string,
+  'preferredCurrency' : string,
+  'language' : string,
+}
+export interface VirtualAccount {
+  'expiresAt' : string,
+  'reference' : string,
+  'bankName' : string,
+  'accountName' : string,
+  'accountNumber' : string,
+}
+export type VirtualAccountResult = { 'ok' : VirtualAccount } |
+  { 'err' : string };
+export interface WalletBalance { 'currency' : string, 'amount' : number }
+export interface WalletTransaction {
+  'id' : string,
+  'status' : string,
+  'date' : string,
+  'desc' : string,
+  'currency' : string,
+  'txType' : string,
+  'amount' : number,
+}
+export interface YouTubeVideo {
+  'title' : string,
+  'channelTitle' : string,
+  'thumbnail' : string,
+  'videoId' : string,
+}
 export interface _SERVICE {
-  getMarketData: ActorMethod<[], MarketData>;
-  getNewsData: ActorMethod<[], NewsData>;
-  getWalletBalance: ActorMethod<[string], number>;
-  recordMovePayment: ActorMethod<[string, string, string, number, string, string, string, string], {ok: string} | {err: string}>;
+  'addAlert' : ActorMethod<[string, string, string, number], Alert>,
+  'addWalletTransaction' : ActorMethod<
+    [string, string, number, string, string, string],
+    WalletTransaction
+  >,
+  'clearAlertTriggered' : ActorMethod<[string], boolean>,
+  'createVirtualAccount' : ActorMethod<[string], VirtualAccountResult>,
+  'deleteAlert' : ActorMethod<[string], boolean>,
+  'deleteRoute' : ActorMethod<[string], MoveResult>,
+  'getAcceptedDeliveries' : ActorMethod<[], Array<DeliveryRequest>>,
+  'getAcceptedDeliveriesWithTracking' : ActorMethod<
+    [],
+    Array<AcceptedDeliveryWithTracking>
+  >,
+  'getAlerts' : ActorMethod<[], Array<Alert>>,
+  'getAllRoutes' : ActorMethod<[], Array<RiderRoute>>,
+  'getHistoricalPrices' : ActorMethod<[string], Array<number>>,
+  'getIncomingRequests' : ActorMethod<[], Array<RequestWithPackage>>,
+  'getMarketData' : ActorMethod<[], MarketData>,
+  'getMatchedRiders' : ActorMethod<[string, string], Array<RiderRoute>>,
+  'getNewsData' : ActorMethod<[], NewsData>,
+  'getRiderRoutes' : ActorMethod<[], Array<RiderRoute>>,
+  'getSenderPackages' : ActorMethod<[], Array<Package>>,
+  'getSenderRequests' : ActorMethod<[], Array<DeliveryRequest>>,
+  'getSenderTrackings' : ActorMethod<[], Array<ShipmentTracking>>,
+  'getTrackingByCode' : ActorMethod<[string], [] | [ShipmentTracking]>,
+  'getTrackingByRequestId' : ActorMethod<[string], [] | [ShipmentTracking]>,
+  'getUserProfile' : ActorMethod<[], [] | [UserProfile]>,
+  'getVirtualAccount' : ActorMethod<[], [] | [VirtualAccount]>,
+  'getWalletBalance' : ActorMethod<[string], number>,
+  'getWalletBalances' : ActorMethod<[], Array<WalletBalance>>,
+  'getWalletTransactions' : ActorMethod<[], Array<WalletTransaction>>,
+  'getYouTubeVideos' : ActorMethod<[], Array<YouTubeVideo>>,
+  'getYouTubeVideosByQuery' : ActorMethod<[string], Array<YouTubeVideo>>,
+  'markAlertTriggered' : ActorMethod<[string], boolean>,
+  'postPackage' : ActorMethod<
+    [string, string, string, string, number, string],
+    MoveResult
+  >,
+  'recordMovePayment' : ActorMethod<
+    [string, string, string, number, string, string, string, string],
+    MoveResult
+  >,
+  'refreshVirtualAccount' : ActorMethod<[string], VirtualAccountResult>,
+  'registerRoute' : ActorMethod<
+    [string, string, string, string, string, string, string],
+    MoveResult
+  >,
+  'respondToRequest' : ActorMethod<[string, boolean], MoveResult>,
+  'saveUserProfile' : ActorMethod<
+    [string, string, string, boolean, boolean],
+    UserProfile
+  >,
+  'sendDeliveryRequest' : ActorMethod<[string, string, string], MoveResult>,
+  'sendMoney' : ActorMethod<[string, number, string, string], SendMoneyResult>,
+  'updateAlert' : ActorMethod<[string, boolean], boolean>,
+  'updateRoute' : ActorMethod<
+    [string, string, string, string, string, string, string, string],
+    MoveResult
+  >,
+  'updateShipmentStatus' : ActorMethod<[string, string], MoveResult>,
+  'updateWalletBalance' : ActorMethod<[string, number], WalletBalance>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

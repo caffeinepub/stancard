@@ -1,16 +1,24 @@
 import { ArrowDownRight, ArrowRight, ArrowUpRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { NewsArticle } from "../declarations/backend.did.d.ts";
-import type { _SERVICE } from "../declarations/backend.did.d.ts";
 import { useActor } from "../hooks/useActor";
 // Issue 22+23: use shared fxRates to eliminate duplication with DonutChart
 import { USD_RATES } from "../utils/fxRates";
 import { DonutChart } from "./DonutChart";
+import type { NewsArticle } from "./NewsSection";
 import {
   ArticlePreviewModal,
   NewsSection,
   getArticleCategory,
 } from "./NewsSection";
+
+// ─── Local actor interface for news ──────────────────────────────────────────
+interface NewsActor {
+  getNewsData: () => Promise<{
+    success: boolean;
+    articles: NewsArticle[];
+    lastUpdated: bigint;
+  }>;
+}
 
 // ─── Mock fallback news ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -382,7 +390,7 @@ export function HomeScreen({
     if (isFetchingNewsRef.current) return;
     isFetchingNewsRef.current = true;
     try {
-      const typedActor = actor as unknown as _SERVICE;
+      const typedActor = actor as unknown as NewsActor;
       // Issue 7: wrap getNewsData with 8-second timeout
       const fetchPromise = typedActor.getNewsData();
       const timeoutPromise = new Promise<never>((_, rej) =>

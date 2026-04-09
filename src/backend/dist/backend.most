@@ -168,6 +168,8 @@ actor {
       var root : Node__46230540<Principal, [Package__226567178]>;
       var size : Nat__490723111
     };
+  stable pushSubscriptions :
+    {var root : Node__46230540<Principal, Text>; var size : Nat__490723111};
   stable var requestCounter : Nat;
   stable riderRoutes :
     {

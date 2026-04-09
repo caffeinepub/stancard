@@ -635,6 +635,12 @@ function LocationSearchInput({
 
 // ─── Verification helpers ────────────────────────────────────────────────────
 
+/** Bicycle and Ebike don't require a license or vehicle registration number. */
+function requiresLicenseAndReg(vehicleType: string): boolean {
+  const vt = vehicleType.toLowerCase();
+  return vt !== "bicycle" && vt !== "ebike";
+}
+
 function licenseLabel(vehicleType: string): string {
   switch (vehicleType.toLowerCase()) {
     case "truck":
@@ -866,23 +872,37 @@ function RiderVerificationModal({
     }
   }, [open]);
 
-  const anyUploading = idDoc.uploading || licDoc.uploading || regDoc.uploading;
+  const anyUploading =
+    idDoc.uploading ||
+    (requiresLicenseAndReg(vehicleType) && licDoc.uploading) ||
+    (requiresLicenseAndReg(vehicleType) && regDoc.uploading);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (anyUploading) return;
+    const needsLicenseAndReg = requiresLicenseAndReg(vehicleType);
+    // For Bicycle/Ebike, license and vehicle reg are not required
+    if (needsLicenseAndReg && !licenseNum.trim()) {
+      setError("Please enter your license number.");
+      return;
+    }
+    if (needsLicenseAndReg && !vehicleReg.trim()) {
+      setError("Please enter your vehicle registration number.");
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
+      const needsLicenseAndReg = requiresLicenseAndReg(vehicleType);
       const result = await Promise.race([
         actor.submitRiderVerification(
           nationalId.trim(),
-          licenseNum.trim(),
-          licenseTypeName(vehicleType),
-          vehicleReg.trim(),
+          needsLicenseAndReg ? licenseNum.trim() : "",
+          needsLicenseAndReg ? licenseTypeName(vehicleType) : "N/A",
+          needsLicenseAndReg ? vehicleReg.trim() : "",
           idDoc.url ?? null,
-          licDoc.url ?? null,
-          regDoc.url ?? null,
+          needsLicenseAndReg ? (licDoc.url ?? null) : null,
+          needsLicenseAndReg ? (regDoc.url ?? null) : null,
         ),
         new Promise<{ err: string }>((resolve) =>
           setTimeout(
@@ -1032,54 +1052,58 @@ function RiderVerificationModal({
               data-ocid="move.rider_verification_modal.national_id"
             />
           </div>
-          <div>
-            <label
-              htmlFor="rv-license-num"
-              style={{
-                color: "#D4AF37",
-                fontSize: 12,
-                fontWeight: 600,
-                display: "block",
-                marginBottom: 6,
-              }}
-            >
-              {licenseLabel(vehicleType)} *
-            </label>
-            <input
-              id="rv-license-num"
-              type="text"
-              value={licenseNum}
-              onChange={(e) => setLicenseNum(e.target.value)}
-              placeholder="Enter your license number"
-              required
-              style={INPUT_STYLE}
-              data-ocid="move.rider_verification_modal.license_number"
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="rv-vehicle-reg"
-              style={{
-                color: "#D4AF37",
-                fontSize: 12,
-                fontWeight: 600,
-                display: "block",
-                marginBottom: 6,
-              }}
-            >
-              Vehicle Registration Number *
-            </label>
-            <input
-              id="rv-vehicle-reg"
-              type="text"
-              value={vehicleReg}
-              onChange={(e) => setVehicleReg(e.target.value)}
-              placeholder="Enter your vehicle registration number"
-              required
-              style={INPUT_STYLE}
-              data-ocid="move.rider_verification_modal.vehicle_reg"
-            />
-          </div>
+          {requiresLicenseAndReg(vehicleType) && (
+            <div>
+              <label
+                htmlFor="rv-license-num"
+                style={{
+                  color: "#D4AF37",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  display: "block",
+                  marginBottom: 6,
+                }}
+              >
+                {licenseLabel(vehicleType)} *
+              </label>
+              <input
+                id="rv-license-num"
+                type="text"
+                value={licenseNum}
+                onChange={(e) => setLicenseNum(e.target.value)}
+                placeholder="Enter your license number"
+                required
+                style={INPUT_STYLE}
+                data-ocid="move.rider_verification_modal.license_number"
+              />
+            </div>
+          )}
+          {requiresLicenseAndReg(vehicleType) && (
+            <div>
+              <label
+                htmlFor="rv-vehicle-reg"
+                style={{
+                  color: "#D4AF37",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  display: "block",
+                  marginBottom: 6,
+                }}
+              >
+                Vehicle Registration Number *
+              </label>
+              <input
+                id="rv-vehicle-reg"
+                type="text"
+                value={vehicleReg}
+                onChange={(e) => setVehicleReg(e.target.value)}
+                placeholder="Enter your vehicle registration number"
+                required
+                style={INPUT_STYLE}
+                data-ocid="move.rider_verification_modal.vehicle_reg"
+              />
+            </div>
+          )}
           <div>
             <p style={{ ...SECTION_LABEL, marginBottom: 14 }}>
               Upload Supporting Documents{" "}
@@ -1102,18 +1126,22 @@ function RiderVerificationModal({
                 onChange={setIdDoc}
                 ocid="move.rider_verification_modal.id_doc"
               />
-              <DocUploadField
-                label="Upload License Photo"
-                state={licDoc}
-                onChange={setLicDoc}
-                ocid="move.rider_verification_modal.lic_doc"
-              />
-              <DocUploadField
-                label="Upload Vehicle Registration Photo"
-                state={regDoc}
-                onChange={setRegDoc}
-                ocid="move.rider_verification_modal.reg_doc"
-              />
+              {requiresLicenseAndReg(vehicleType) && (
+                <DocUploadField
+                  label="Upload License Photo"
+                  state={licDoc}
+                  onChange={setLicDoc}
+                  ocid="move.rider_verification_modal.lic_doc"
+                />
+              )}
+              {requiresLicenseAndReg(vehicleType) && (
+                <DocUploadField
+                  label="Upload Vehicle Registration Photo"
+                  state={regDoc}
+                  onChange={setRegDoc}
+                  ocid="move.rider_verification_modal.reg_doc"
+                />
+              )}
             </div>
           </div>
           {error && (

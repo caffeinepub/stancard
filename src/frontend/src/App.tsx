@@ -13,6 +13,7 @@ import { MarketsScreen } from "./components/MarketsScreen";
 import { MoveScreen } from "./components/MoveScreen";
 import { PayScreen } from "./components/PayScreen";
 import { ProfileScreen } from "./components/ProfileScreen";
+import type { SetAlertPayload } from "./components/Sparkline";
 import { TrackingPage } from "./components/TrackingPage";
 import { useActor } from "./hooks/useActor";
 import { useInternetIdentity } from "./hooks/useInternetIdentity";
@@ -262,6 +263,11 @@ export default function App() {
   const [alertBadge, setAlertBadge] = useState(false);
   const [activeBanner, setActiveBanner] = useState<Alert | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  // Pending alert preset: when user taps "Set Alert" from Markets, we navigate
+  // to Alerts tab and pass the preset so CreateAlertModal opens pre-filled.
+  const [pendingAlert, setPendingAlert] = useState<SetAlertPayload | null>(
+    null,
+  );
 
   // ── Tracking page state ──
   // null = not showing, string (empty or code) = showing tracking page
@@ -378,10 +384,22 @@ export default function App() {
   }
 
   // ── Admin check: fires when BOTH actor AND identity are ready ──
+  // Client-side fallback: if principal matches the whitelisted admin, show Admin button
+  // without waiting for canister response (handles timing/cold-start issues).
+  const ADMIN_PRINCIPAL =
+    "rmmgc-fyz2d-prb4x-22bqa-wy72b-7qggc-ct55q-lwuky-dp4qh-wfvxo-lae";
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — actor and identity are the required deps
   useEffect(() => {
     if (!actor || !identity) {
       setIsAdmin(false);
+      return;
+    }
+
+    // Immediate client-side check: if caller principal matches known admin, show button now
+    const callerPrincipal = identity.getPrincipal().toText();
+    if (callerPrincipal === ADMIN_PRINCIPAL) {
+      setIsAdmin(true);
       return;
     }
 
@@ -396,14 +414,23 @@ export default function App() {
         ]);
         if (!cancelled) setIsAdmin(Boolean(result));
       } catch {
-        // Retry once after 2s
+        // Retry once after 2s — covers canister cold-start timing
         setTimeout(async () => {
           if (cancelled) return;
           try {
-            const result = await actor.isAdminCaller();
+            const result = await Promise.race([
+              actor.isAdminCaller(),
+              new Promise<boolean>((_, reject) =>
+                setTimeout(() => reject(new Error("timeout")), 8000),
+              ),
+            ]);
             if (!cancelled) setIsAdmin(Boolean(result));
           } catch {
-            /* silent */
+            // Final fallback: re-check principal client-side
+            if (!cancelled && identity) {
+              const p = identity.getPrincipal().toText();
+              if (p === ADMIN_PRINCIPAL) setIsAdmin(true);
+            }
           }
         }, 2000);
       }
@@ -413,6 +440,18 @@ export default function App() {
       cancelled = true;
     };
   }, [actor, identity]);
+
+  // ── Canister warm-up ping: fire once after actor is ready to reduce cold-start latency ──
+  const warmUpFiredRef = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — one-shot warm-up
+  useEffect(() => {
+    if (!actor || warmUpFiredRef.current) return;
+    warmUpFiredRef.current = true;
+    // Fire-and-forget: a lightweight read call to wake up the canister
+    void actor.getUserProfile().catch(() => {
+      /* warm-up only — ignore errors */
+    });
+  }, [actor]);
 
   // ── Preference sync on login ──
   // Issue 28: removed `actor` from deps; sync only fires on identity change (login/logout),
@@ -567,7 +606,10 @@ export default function App() {
       {activeTab === "markets" && (
         <MarketsScreen
           isActive={activeTab === "markets"}
-          onSetAlert={() => setActiveTab("alerts")}
+          onSetAlert={(payload) => {
+            setPendingAlert(payload);
+            setActiveTab("alerts");
+          }}
         />
       )}
       {activeTab === "pay" && (
@@ -585,6 +627,8 @@ export default function App() {
           isActive={activeTab === "alerts"}
           onAlertTriggered={handleAlertTriggered}
           identity={identity}
+          pendingAlert={pendingAlert}
+          onClearPendingAlert={() => setPendingAlert(null)}
         />
       )}
       {activeTab === "move" && (

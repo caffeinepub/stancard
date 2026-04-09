@@ -1078,6 +1078,10 @@ persistent actor {
 
 
   // ─── Virtual Account Public API ─────────────────────────────────────────────
+  // DEPRECATED: These functions are no longer called by the frontend.
+  // The QR code receive flow has replaced the Flutterwave virtual account flow.
+  // These functions are kept to avoid breaking deployed canister state —
+  // do NOT remove them.
 
   public query (msg) func getVirtualAccount() : async ?VirtualAccount {
     virtualAccounts.get(msg.caller)
@@ -2093,6 +2097,24 @@ persistent actor {
     let updatedGoals = existing.filter(func(g) { g.id != goalId });
     savingsGoals.add(msg.caller, updatedGoals);
     #ok(unlockedAmount)
+  };
+
+  // ─── Push Notification Subscriptions ────────────────────────────────────
+
+  let pushSubscriptions : Map.Map<Principal, Text> = Map.empty<Principal, Text>();
+
+  /// Store the caller's Web Push subscription JSON (VAPID) so the service
+  /// worker can retrieve it and send notifications for triggered alerts.
+  public shared (msg) func saveNotificationSubscription(subscription : Text) : async () {
+    if (not msg.caller.isAnonymous()) {
+      pushSubscriptions.add(msg.caller, subscription);
+    };
+  };
+
+  /// Retrieve the caller's stored push notification subscription JSON, if any.
+  public query (msg) func getNotificationSubscription() : async ?Text {
+    if (msg.caller.isAnonymous()) { return null };
+    pushSubscriptions.get(msg.caller)
   };
 
   // ─── Admin State ─────────────────────────────────────────────────────────

@@ -276,6 +276,7 @@ export const idlService = IDL.Service({
       ['query'],
     ),
   'getAdminList' : IDL.Func([], [IDL.Vec(IDL.Principal)], ['query']),
+  'getAdminStatus' : IDL.Func([], [IDL.Bool], ['query']),
   'getAlerts' : IDL.Func([], [IDL.Vec(Alert)], []),
   'getAllRiderVerifications' : IDL.Func(
       [],
@@ -302,6 +303,7 @@ export const idlService = IDL.Service({
       ['query'],
     ),
   'getNewsData' : IDL.Func([], [NewsData], []),
+  'getNotificationSubscription' : IDL.Func([], [IDL.Opt(IDL.Text)], ['query']),
   'getRiderRoutes' : IDL.Func([], [IDL.Vec(RiderRoute)], ['query']),
   'getRiderVerification' : IDL.Func(
       [],
@@ -377,6 +379,7 @@ export const idlService = IDL.Service({
     ),
   'removeAdmin' : IDL.Func([IDL.Principal], [AdminResult], []),
   'respondToRequest' : IDL.Func([IDL.Text, IDL.Bool], [MoveResult], []),
+  'saveNotificationSubscription' : IDL.Func([IDL.Text], [], []),
   'saveUserProfile' : IDL.Func(
       [IDL.Text, IDL.Text, IDL.Text, IDL.Bool, IDL.Bool],
       [UserProfile],
@@ -703,6 +706,7 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     'getAdminList' : IDL.Func([], [IDL.Vec(IDL.Principal)], ['query']),
+    'getAdminStatus' : IDL.Func([], [IDL.Bool], ['query']),
     'getAlerts' : IDL.Func([], [IDL.Vec(Alert)], []),
     'getAllRiderVerifications' : IDL.Func(
         [],
@@ -729,6 +733,11 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     'getNewsData' : IDL.Func([], [NewsData], []),
+    'getNotificationSubscription' : IDL.Func(
+        [],
+        [IDL.Opt(IDL.Text)],
+        ['query'],
+      ),
     'getRiderRoutes' : IDL.Func([], [IDL.Vec(RiderRoute)], ['query']),
     'getRiderVerification' : IDL.Func(
         [],
@@ -808,6 +817,7 @@ export const idlFactory = ({ IDL }) => {
       ),
     'removeAdmin' : IDL.Func([IDL.Principal], [AdminResult], []),
     'respondToRequest' : IDL.Func([IDL.Text, IDL.Bool], [MoveResult], []),
+    'saveNotificationSubscription' : IDL.Func([IDL.Text], [], []),
     'saveUserProfile' : IDL.Func(
         [IDL.Text, IDL.Text, IDL.Text, IDL.Bool, IDL.Bool],
         [UserProfile],

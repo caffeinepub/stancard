@@ -40,6 +40,12 @@ mixin (
     AdminLib.isAdmin(adminWhitelist, msg.caller)
   };
 
+  /// Returns whether the caller is an admin. Alias for isAdminCaller() — use this
+  /// for frontend polling since it can be retried without side effects.
+  public query (msg) func getAdminStatus() : async Bool {
+    AdminLib.isAdmin(adminWhitelist, msg.caller)
+  };
+
   // ─── Rider Verification Admin ───────────────────────────────────────────
 
   /// Approve a rider's verification submission. Admin only.

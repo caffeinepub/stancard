@@ -2,21 +2,20 @@ import {
   ArrowDownRight,
   ArrowLeftRight,
   ArrowUpRight,
-  BookOpen,
   RefreshCw,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useActor } from "../hooks/useActor";
 import { updateLiveRates } from "../utils/fxRates";
-import { LearnSection } from "./LearnSection";
+import type { SetAlertPayload } from "./Sparkline";
 import {
   ExpandedChartModal,
   Sparkline,
   generateSparklineData,
 } from "./Sparkline";
 
-// ─── Local types (mirrors backend Motoko types) ────────────────────────────
+// ─── Local types ───────────────────────────────────────────────────────────────
 export interface StockQuote {
   symbol: string;
   name: string;
@@ -44,7 +43,6 @@ export interface MarketData {
   success: boolean;
 }
 
-// Local actor types for backend calls
 type ActorWithMarket = {
   getMarketData: () => Promise<MarketData>;
 };
@@ -54,7 +52,7 @@ type ActorWithHistorical = {
   getHistoricalForex: (symbol: string) => Promise<number[]>;
 };
 
-// ─── Mock fallback data ─────────────────────────────────────────────────────
+// ─── Mock fallback data ────────────────────────────────────────────────────────
 const MOCK_DATA: MarketData = {
   success: false,
   lastUpdated: BigInt(Date.now()),
@@ -140,7 +138,7 @@ const MOCK_DATA: MarketData = {
   ],
 };
 
-// ─── Constants ────────────────────────────────────────────────────────────────────────
+// ─── Constants ─────────────────────────────────────────────────────────────────
 const FOREX_FLAGS: Record<string, string> = {
   USD: "🇺🇸",
   NGN: "🇳🇬",
@@ -152,7 +150,6 @@ const FOREX_FLAGS: Record<string, string> = {
 
 const CRYPTO_SYMBOLS = ["BTC", "ETH", "BNB"];
 
-// Symbols to fetch real historical data for (stocks + crypto)
 const HISTORICAL_SYMBOLS = [
   "AAPL",
   "GOOGL",
@@ -169,7 +166,6 @@ const HISTORICAL_SYMBOLS = [
   "BNB",
 ];
 
-// Forex symbols that map to FMP historical pairs (USD is base — no sparkline)
 const FOREX_HISTORICAL_MAP: Record<string, string> = {
   EUR: "EURUSD",
   GBP: "GBPUSD",
@@ -193,7 +189,7 @@ const ALL_CURRENCIES = [
 const SKELETON_IDS_SM = ["sk-s1", "sk-s2", "sk-s3", "sk-s4", "sk-s5", "sk-s6"];
 const SKELETON_IDS_MD = ["sk-m1", "sk-m2", "sk-m3"];
 
-// ─── Expanded item type ───────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 type ExpandedItem = {
   symbol: string;
   name: string;
@@ -203,7 +199,7 @@ type ExpandedItem = {
   priceUnit?: string;
 } | null;
 
-// ─── Helper functions ────────────────────────────────────────────────────────────────────
+// ─── Helper functions ──────────────────────────────────────────────────────────
 function formatPrice(price: number, symbol?: string): string {
   if (CRYPTO_SYMBOLS.includes(symbol ?? "")) {
     if (price >= 1000)
@@ -231,6 +227,17 @@ function getTimeAgo(timestampMs: number): string {
   if (diffMin < 60) return `Updated ${diffMin} min ago`;
   const diffHr = Math.floor(diffMin / 60);
   return `Updated ${diffHr}h ago`;
+}
+
+/** Small "as of X min ago" label used on individual price cards */
+function cardAgoLabel(fetchedAtMs: number): string {
+  if (!fetchedAtMs) return "";
+  const diffMs = Date.now() - fetchedAtMs;
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return "just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} min ago`;
+  return "over 1h ago";
 }
 
 function convertCurrency(
@@ -282,7 +289,7 @@ function formatConverted(value: number, to: string): string {
   });
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────────────────
+// ─── Sub-components ────────────────────────────────────────────────────────────
 function SkeletonCard({ wide }: { wide?: boolean }) {
   return (
     <div
@@ -311,10 +318,12 @@ function StockCard({
   stock,
   onTap,
   historicalData,
+  fetchedAtMs,
 }: {
   stock: StockQuote;
   onTap: () => void;
   historicalData: Record<string, number[]>;
+  fetchedAtMs: number;
 }) {
   const isPositive = stock.changesPercentage >= 0;
   const monogram = stock.symbol.slice(0, 2).toUpperCase();
@@ -378,6 +387,14 @@ function StockCard({
         <div style={{ opacity: 0.85 }}>
           <Sparkline data={sparkData} width={80} height={30} />
         </div>
+        {fetchedAtMs > 0 && (
+          <p
+            className="text-[9px] mt-0.5"
+            style={{ color: "rgba(212,175,55,0.5)" }}
+          >
+            {cardAgoLabel(fetchedAtMs)}
+          </p>
+        )}
       </div>
     </button>
   );
@@ -387,10 +404,12 @@ function ForexCard({
   forex,
   onTap,
   historicalData,
+  fetchedAtMs,
 }: {
   forex: ForexRate;
   onTap: () => void;
   historicalData?: number[];
+  fetchedAtMs: number;
 }) {
   const flag = FOREX_FLAGS[forex.symbol] ?? "";
   const isBase = forex.symbol === "USD";
@@ -439,6 +458,14 @@ function ForexCard({
           <div className="mt-2" style={{ opacity: 0.85 }}>
             <Sparkline data={sparkData} width={72} height={26} />
           </div>
+          {fetchedAtMs > 0 && (
+            <p
+              className="text-[9px] mt-1"
+              style={{ color: "rgba(212,175,55,0.5)" }}
+            >
+              {cardAgoLabel(fetchedAtMs)}
+            </p>
+          )}
         </>
       )}
     </button>
@@ -449,10 +476,12 @@ function CryptoCard({
   crypto,
   onTap,
   historicalData,
+  fetchedAtMs,
 }: {
   crypto: CryptoQuote;
   onTap: () => void;
   historicalData: Record<string, number[]>;
+  fetchedAtMs: number;
 }) {
   const isPositive = crypto.changesPercentage >= 0;
   const [hovered, setHovered] = useState(false);
@@ -515,6 +544,14 @@ function CryptoCard({
         <div style={{ opacity: 0.85 }}>
           <Sparkline data={sparkData} width={80} height={30} />
         </div>
+        {fetchedAtMs > 0 && (
+          <p
+            className="text-[9px] mt-0.5"
+            style={{ color: "rgba(212,175,55,0.5)" }}
+          >
+            {cardAgoLabel(fetchedAtMs)}
+          </p>
+        )}
       </div>
     </button>
   );
@@ -628,6 +665,7 @@ function CurrencyConverter({
               background: "#1A1A1A",
               border: "1px solid #2A2A2A",
               color: "#E8E8E8",
+              fontSize: "16px",
             }}
             data-ocid="converter.input"
           />
@@ -716,11 +754,10 @@ function CurrencyConverter({
   );
 }
 
-// ─── Main MarketsScreen ──────────────────────────────────────────────────────────────────────────
+// ─── Main MarketsScreen ────────────────────────────────────────────────────────
 interface MarketsScreenProps {
   isActive: boolean;
-  // ISSUE 14: callback to navigate to Alerts tab
-  onSetAlert?: () => void;
+  onSetAlert?: (payload: SetAlertPayload) => void;
 }
 
 export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
@@ -728,7 +765,7 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
   const [marketData, setMarketData] = useState<MarketData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<
-    "stocks" | "forex" | "crypto" | "convert" | "learn"
+    "stocks" | "forex" | "crypto" | "convert"
   >("stocks");
   const [expandedItem, setExpandedItem] = useState<ExpandedItem>(null);
   const [historicalData, setHistoricalData] = useState<
@@ -737,8 +774,12 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
   const [forexHistoricalData, setForexHistoricalData] = useState<
     Record<string, number[]>
   >({});
+  // Tracks when the last successful market data fetch completed (for card timestamps)
+  const [fetchedAtMs, setFetchedAtMs] = useState<number>(0);
+  // Ticker to re-render "X min ago" labels every minute
+  const [, setTickMs] = useState<number>(0);
+
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Issue 9: pendingRef prevents stacked interval fetches
   const pendingRef = useRef(false);
   const marketDataRef = useRef<MarketData | null>(null);
   const historicalLoaded = useRef(false);
@@ -746,7 +787,6 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
 
   marketDataRef.current = marketData;
 
-  // When actor changes from null → set, reset historicalLoaded so fresh data is fetched
   useEffect(() => {
     const wasNull = !prevActorRef.current;
     const isNowSet = !!actor;
@@ -756,28 +796,30 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
     }
   }, [actor]);
 
-  // Issue 10: Fetch real historical prices once per session for stocks + crypto.
-  // historicalLoaded is set to true AFTER allSettled resolves, not before.
+  // Re-render "X min ago" labels every 60s
+  useEffect(() => {
+    const id = setInterval(() => setTickMs(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // ─── Historical data ──────────────────────────────────────────────────────
   const fetchHistoricalData = useCallback(async () => {
     if (!actor || historicalLoaded.current) return;
-    // Mark early to prevent concurrent invocations, but reset on failure
     historicalLoaded.current = true;
     try {
       const typedActor = actor as unknown as ActorWithHistorical;
       const results = await Promise.allSettled(
         HISTORICAL_SYMBOLS.map((symbol) =>
           Promise.race([
-            typedActor.getHistoricalPrices(symbol).then((prices) => ({
-              symbol,
-              prices,
-            })),
+            typedActor
+              .getHistoricalPrices(symbol)
+              .then((prices) => ({ symbol, prices })),
             new Promise<{ symbol: string; prices: number[] }>((_, rej) =>
               setTimeout(() => rej(new Error("timeout")), 8000),
             ),
           ]),
         ),
       );
-      // historicalLoaded already set above; update data from results
       const newData: Record<string, number[]> = {};
       for (const result of results) {
         if (result.status === "fulfilled" && result.value.prices.length > 0) {
@@ -788,16 +830,14 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
         setHistoricalData(newData);
       }
 
-      // Fix 3: fetch real historical forex sparklines (one per non-USD pair)
       if (typeof typedActor.getHistoricalForex === "function") {
         const forexEntries = Object.entries(FOREX_HISTORICAL_MAP);
         const forexResults = await Promise.allSettled(
           forexEntries.map(([currency, fmpSymbol]) =>
             Promise.race([
-              typedActor.getHistoricalForex(fmpSymbol).then((prices) => ({
-                currency,
-                prices,
-              })),
+              typedActor
+                .getHistoricalForex(fmpSymbol)
+                .then((prices) => ({ currency, prices })),
               new Promise<{ currency: string; prices: number[] }>((_, rej) =>
                 setTimeout(() => rej(new Error("timeout")), 8000),
               ),
@@ -815,36 +855,33 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
         }
       }
     } catch {
-      // Silently fall back to mock sparkline data — no error shown to user
-      historicalLoaded.current = false; // allow retry on next tab visit
+      historicalLoaded.current = false;
     }
   }, [actor]);
 
   const fetchData = useCallback(async () => {
     if (!actor) return;
-    // Issue 9: skip tick if a previous fetch is still in-flight
     if (pendingRef.current) return;
     pendingRef.current = true;
     try {
       const typedActor = actor as unknown as ActorWithMarket;
-      // Issue 9: 8-second timeout on market data fetch
       const dataPromise = typedActor.getMarketData();
       const timeoutPromise = new Promise<never>((_, rej) =>
         setTimeout(() => rej(new Error("timeout")), 8000),
       );
       const data = await Promise.race([dataPromise, timeoutPromise]);
       setMarketData(data);
-      // Push live forex rates to the shared fxRates store so HomeScreen / DonutChart use real rates
+      setFetchedAtMs(Date.now());
       if (data.forex && data.forex.length > 0) {
         updateLiveRates(data.forex);
       }
-      // Fetch historical data once after first successful market data load
       if (!historicalLoaded.current) {
         fetchHistoricalData();
       }
     } catch {
       if (!marketDataRef.current) {
         setMarketData(MOCK_DATA);
+        setFetchedAtMs(Date.now());
       }
     } finally {
       setIsLoading(false);
@@ -852,15 +889,13 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
     }
   }, [actor, fetchHistoricalData]);
 
-  // Manual refresh — clears the pending lock so user-triggered refresh always fires
   const handleManualRefresh = useCallback(() => {
-    if (!actor) return;
+    if (!actor || isLoading) return;
     pendingRef.current = false;
     setIsLoading(true);
     fetchData();
-  }, [actor, fetchData]);
+  }, [actor, isLoading, fetchData]);
 
-  // Initial fetch — fires when actor first becomes available
   const initialFetchedRef = useRef(false);
   useEffect(() => {
     if (actor && !isFetching && !initialFetchedRef.current) {
@@ -869,11 +904,12 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
     } else if (!actor && !isFetching && !initialFetchedRef.current) {
       initialFetchedRef.current = true;
       setMarketData(MOCK_DATA);
+      setFetchedAtMs(Date.now());
       setIsLoading(false);
     }
   }, [actor, isFetching, fetchData]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional trigger on tab activation only
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional on tab activation
   useEffect(() => {
     if (isActive && actor && !isFetching) {
       fetchData();
@@ -895,14 +931,13 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
   const timeAgo = getTimeAgo(lastUpdatedMs);
 
   const tabs: Array<{
-    id: "stocks" | "forex" | "crypto" | "convert" | "learn";
+    id: "stocks" | "forex" | "crypto" | "convert";
     label: string;
   }> = [
     { id: "stocks", label: "Stocks" },
     { id: "forex", label: "Forex" },
     { id: "crypto", label: "Crypto" },
     { id: "convert", label: "Convert" },
-    { id: "learn", label: "Learn" },
   ];
 
   const makeStockItem = (stock: StockQuote) => {
@@ -1040,7 +1075,6 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
               }}
               data-ocid={`markets.${tab.id}.tab`}
             >
-              {tab.id === "learn" && <BookOpen size={11} />}
               {tab.label}
             </button>
           ))}
@@ -1062,6 +1096,7 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
                       <StockCard
                         stock={stock}
                         historicalData={historicalData}
+                        fetchedAtMs={fetchedAtMs}
                         onTap={() => setExpandedItem(makeStockItem(stock))}
                       />
                     </div>
@@ -1086,6 +1121,7 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
                         forex={rate}
                         onTap={() => setExpandedItem(makeForexItem(rate))}
                         historicalData={forexHistoricalData[rate.symbol]}
+                        fetchedAtMs={fetchedAtMs}
                       />
                     </div>
                   ))}
@@ -1108,6 +1144,7 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
                       <CryptoCard
                         crypto={coin}
                         historicalData={historicalData}
+                        fetchedAtMs={fetchedAtMs}
                         onTap={() => setExpandedItem(makeCryptoItem(coin))}
                       />
                     </div>
@@ -1132,14 +1169,9 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
             )}
           </section>
         )}
-        {activeTab === "learn" && (
-          <section>
-            <LearnSection />
-          </section>
-        )}
       </div>
 
-      {/* ===== DESKTOP: three-column grid + converter below ===== */}
+      {/* ===== DESKTOP: three-column grid + converter ===== */}
       <div className="hidden lg:block">
         <div className="grid grid-cols-3 gap-8 mb-10">
           <section>
@@ -1157,6 +1189,7 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
                       <StockCard
                         stock={stock}
                         historicalData={historicalData}
+                        fetchedAtMs={fetchedAtMs}
                         onTap={() => setExpandedItem(makeStockItem(stock))}
                       />
                     </div>
@@ -1180,6 +1213,7 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
                         forex={rate}
                         onTap={() => setExpandedItem(makeForexItem(rate))}
                         historicalData={forexHistoricalData[rate.symbol]}
+                        fetchedAtMs={fetchedAtMs}
                       />
                     </div>
                   ))}
@@ -1201,6 +1235,7 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
                       <CryptoCard
                         crypto={coin}
                         historicalData={historicalData}
+                        fetchedAtMs={fetchedAtMs}
                         onTap={() => setExpandedItem(makeCryptoItem(coin))}
                       />
                     </div>
@@ -1229,19 +1264,6 @@ export function MarketsScreen({ isActive, onSetAlert }: MarketsScreenProps) {
               isLive={data.success}
             />
           )}
-        </section>
-
-        <section className="mb-8">
-          <div className="flex items-center gap-2 mb-4">
-            <BookOpen size={14} style={{ color: "#D4AF37" }} />
-            <h2
-              className="text-xs font-bold uppercase tracking-widest"
-              style={{ color: "#D4AF37", letterSpacing: "0.14em" }}
-            >
-              Learn
-            </h2>
-          </div>
-          <LearnSection />
         </section>
       </div>
 

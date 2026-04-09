@@ -19,7 +19,6 @@ import { Switch } from "@/components/ui/switch";
 import {
   AlertTriangle,
   BellOff,
-  Play,
   Plus,
   RefreshCw,
   Trash2,
@@ -30,6 +29,7 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useActor } from "../hooks/useActor";
+import type { SetAlertPayload } from "./Sparkline";
 
 // ── Local type definitions (mirrors backend.d.ts) ────────────────────────────────
 
@@ -42,13 +42,6 @@ export interface Alert {
   isActive: boolean;
   isTriggered: boolean;
   createdAt: bigint;
-}
-
-interface YouTubeVideo {
-  videoId: string;
-  title: string;
-  thumbnail: string;
-  channelTitle: string;
 }
 
 interface StockQuote {
@@ -80,7 +73,6 @@ interface MarketData {
 
 interface FullBackend {
   getMarketData: () => Promise<MarketData>;
-  getYouTubeVideosByQuery: (query: string) => Promise<YouTubeVideo[]>;
   addAlert: (
     assetType: string,
     symbol: string,
@@ -99,11 +91,15 @@ export interface AlertsScreenProps {
   onAlertTriggered: (alert: Alert) => void;
   // ISSUE 2: identity prop to detect logged-out state
   identity?: unknown;
+  /** When set, opens CreateAlertModal with this pre-filled data from Markets */
+  pendingAlert?: SetAlertPayload | null;
+  onClearPendingAlert?: () => void;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const FETCH_TIMEOUT_MS = 8_000;
+const NOTIF_REQUESTED_KEY = "stancard_notif_requested";
 
 const STOCK_SYMBOLS = [
   "AAPL",
@@ -124,15 +120,10 @@ const GOLD_GRADIENT =
   "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)";
 
 const PULSE_SKELETON_KEYS = ["ps-1", "ps-2", "ps-3", "ps-4", "ps-5"];
-const VIDEO_SKELETON_KEYS = ["vs-1", "vs-2", "vs-3", "vs-4", "vs-5", "vs-6"];
 const ALERT_SKELETON_KEYS = ["as-1", "as-2", "as-3"];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-/**
- * Races a promise against an 8-second timeout.
- * On timeout or error, resolves to the provided fallback value instead of throwing.
- */
 function withTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
   const timeout = new Promise<T>((resolve) =>
     setTimeout(() => resolve(fallback), FETCH_TIMEOUT_MS),
@@ -146,23 +137,131 @@ function formatPrice(price: number, symbol: string): string {
   return `$${price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function deriveYouTubeQuery(alerts: Alert[]): string {
-  const hasStock = alerts.some((a) => a.assetType === "stock");
-  const hasCrypto = alerts.some((a) => a.assetType === "crypto");
-  const hasCurrency = alerts.some((a) => a.assetType === "currency");
-
-  const parts: string[] = [];
-  if (hasStock) parts.push("stock");
-  if (hasCrypto) parts.push("crypto");
-  if (hasCurrency) parts.push("forex");
-
-  if (parts.length === 0) return "global financial markets today";
-  if (parts.length === 1) {
-    if (hasStock) return "stock market analysis today";
-    if (hasCrypto) return "crypto market update today";
-    return "forex market update today";
+/** Request notification permission once (first alert creation only). */
+async function requestNotificationPermissionOnce(): Promise<void> {
+  if (typeof Notification === "undefined") return;
+  if (localStorage.getItem(NOTIF_REQUESTED_KEY)) return;
+  localStorage.setItem(NOTIF_REQUESTED_KEY, "1");
+  try {
+    await Notification.requestPermission();
+  } catch {
+    // permission denied or API unavailable — silently continue
   }
-  return `${parts.join(" ")} market update today`;
+}
+
+/** Fire a push/local notification for a triggered alert. */
+function fireAlertNotification(symbol: string, targetPrice: number): void {
+  if (typeof Notification === "undefined") return;
+  if (Notification.permission !== "granted") return;
+  const title = "Stancard Alert";
+  const body = `${symbol} has reached your target price of $${targetPrice.toLocaleString()}`;
+  try {
+    // Use service worker if available for background support
+    if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.ready
+        .then((reg) => {
+          reg.showNotification(title, { body, icon: "/icon-192.png" });
+        })
+        .catch(() => {
+          new Notification(title, { body });
+        });
+    } else {
+      new Notification(title, { body });
+    }
+  } catch {
+    // Notification API unavailable — silently ignore
+  }
+}
+
+// ── Market Price Indicator ─────────────────────────────────────────────────────
+
+function MarketPriceIndicator({
+  assetType,
+  symbol,
+  targetPrice,
+  marketData,
+}: {
+  assetType: "stock" | "crypto" | "currency";
+  symbol: string;
+  targetPrice: string;
+  marketData: MarketData | null;
+}) {
+  const parsed = Number.parseFloat(targetPrice);
+  if (!marketData || !targetPrice || Number.isNaN(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  let currentPrice: number | null = null;
+
+  if (assetType === "stock") {
+    const match = marketData.stocks.find((s) => s.symbol === symbol);
+    if (match) currentPrice = match.price;
+  } else if (assetType === "crypto") {
+    const match = marketData.crypto.find((c) => c.symbol === symbol);
+    if (match) currentPrice = match.price;
+  } else if (assetType === "currency") {
+    // symbol is like "USD/NGN" — forex rate represents 1 USD in NGN
+    const match = marketData.forex.find((f) => f.symbol === symbol);
+    if (match) currentPrice = match.rate;
+  }
+
+  if (currentPrice === null || currentPrice === 0) return null;
+
+  const pctDiff = ((parsed - currentPrice) / currentPrice) * 100;
+  const absPct = Math.abs(pctDiff).toFixed(2);
+  const isAbove = pctDiff > 0;
+  const isBelow = pctDiff < 0;
+  const isSame = Math.abs(pctDiff) < 0.01;
+
+  const currencySymbol = assetType === "currency" ? "₦" : "$";
+  const formattedCurrent =
+    assetType === "currency"
+      ? `${currencySymbol}${currentPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : formatPrice(currentPrice, symbol);
+
+  return (
+    <div
+      data-ocid="alerts.create.market_indicator"
+      style={{
+        marginTop: 8,
+        padding: "8px 12px",
+        borderRadius: 8,
+        background: isAbove
+          ? "rgba(212,175,55,0.08)"
+          : isBelow
+            ? "rgba(224,82,82,0.08)"
+            : "rgba(255,255,255,0.05)",
+        border: isAbove
+          ? "1px solid rgba(212,175,55,0.25)"
+          : isBelow
+            ? "1px solid rgba(224,82,82,0.25)"
+            : "1px solid #2A2A2A",
+        fontSize: 12,
+        lineHeight: 1.5,
+      }}
+    >
+      <span style={{ color: "#7A7A7A" }}>Current price: </span>
+      <span style={{ color: "#E8E8E8", fontWeight: 600 }}>
+        {formattedCurrent}
+      </span>
+      {!isSame && (
+        <>
+          <span style={{ color: "#7A7A7A" }}> — your alert triggers </span>
+          <span
+            style={{
+              fontWeight: 700,
+              color: isAbove ? "#D4AF37" : "#E05252",
+            }}
+          >
+            {absPct}% {isAbove ? "above" : "below"} market
+          </span>
+        </>
+      )}
+      {isSame && (
+        <span style={{ color: "#7A7A7A" }}> — at current market price</span>
+      )}
+    </div>
+  );
 }
 
 // ── Create Alert Modal ─────────────────────────────────────────────────────────
@@ -171,10 +270,20 @@ function CreateAlertModal({
   open,
   onClose,
   onCreated,
+  alertCount,
+  marketData,
+  presetSymbol,
+  presetAssetType,
+  presetPrice,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: (alert: Alert) => void;
+  alertCount: number;
+  marketData: MarketData | null;
+  presetSymbol?: string;
+  presetAssetType?: "stock" | "crypto" | "currency";
+  presetPrice?: string;
 }) {
   const { actor: rawActor } = useActor();
   const actor = rawActor as unknown as FullBackend | null;
@@ -187,6 +296,26 @@ function CreateAlertModal({
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Apply preset values when the modal opens
+  useEffect(() => {
+    if (open && presetAssetType) {
+      setAssetType(presetAssetType);
+    }
+  }, [open, presetAssetType]);
+
+  useEffect(() => {
+    if (open && presetSymbol) {
+      setSymbol(presetSymbol);
+    }
+  }, [open, presetSymbol]);
+
+  useEffect(() => {
+    if (open && presetPrice) {
+      // Strip "$" prefix if present, keep numeric string
+      setTargetPrice(presetPrice.replace(/^\$/, "").replace(/,/g, ""));
+    }
+  }, [open, presetPrice]);
+
   const symbols =
     assetType === "stock"
       ? STOCK_SYMBOLS
@@ -194,16 +323,23 @@ function CreateAlertModal({
         ? CRYPTO_SYMBOLS
         : FOREX_PAIRS;
 
-  // Reset symbol when asset type changes
+  // Reset symbol when asset type changes — but not when a preset symbol is being applied
+  const prevAssetTypeRef = useRef(assetType);
   useEffect(() => {
-    setSymbol(
-      assetType === "stock"
-        ? "AAPL"
-        : assetType === "crypto"
-          ? "BTC"
-          : "USD/NGN",
-    );
-  }, [assetType]);
+    // Only reset symbol if the assetType changed and the current symbol isn't a preset
+    if (prevAssetTypeRef.current !== assetType) {
+      prevAssetTypeRef.current = assetType;
+      if (!presetSymbol) {
+        setSymbol(
+          assetType === "stock"
+            ? "AAPL"
+            : assetType === "crypto"
+              ? "BTC"
+              : "USD/NGN",
+        );
+      }
+    }
+  }, [assetType, presetSymbol]);
 
   async function handleSubmit() {
     if (!actor) {
@@ -224,6 +360,12 @@ function CreateAlertModal({
         condition,
         parsed,
       );
+
+      // Request notification permission on first alert creation
+      if (alertCount === 0) {
+        requestNotificationPermissionOnce();
+      }
+
       onCreated(newAlert);
       onClose();
       setTargetPrice("");
@@ -388,7 +530,7 @@ function CreateAlertModal({
                 letterSpacing: "0.06em",
               }}
             >
-              TARGET PRICE (USD)
+              TARGET PRICE{assetType === "currency" ? " (NGN RATE)" : " (USD)"}
             </Label>
             <div className="relative mt-1.5">
               <span
@@ -403,7 +545,7 @@ function CreateAlertModal({
                   pointerEvents: "none",
                 }}
               >
-                $
+                {assetType === "currency" ? "₦" : "$"}
               </span>
               <Input
                 data-ocid="alerts.create.price.input"
@@ -422,6 +564,13 @@ function CreateAlertModal({
                 }}
               />
             </div>
+            {/* Above/Below market indicator */}
+            <MarketPriceIndicator
+              assetType={assetType}
+              symbol={symbol}
+              targetPrice={targetPrice}
+              marketData={marketData}
+            />
             {error && (
               <p
                 data-ocid="alerts.create.price.error_state"
@@ -606,7 +755,6 @@ function AlertCard({
   );
 }
 
-// ── Market Pulse Retry Handler (lifted to component level via prop) ────────────
 // ── Market Pulse Card ──────────────────────────────────────────────────────────
 
 function PulseCard({
@@ -690,182 +838,6 @@ function PulseCard({
   );
 }
 
-// ── Video Card ─────────────────────────────────────────────────────────────────
-
-function VideoCard({
-  video,
-  index,
-  onClick,
-}: {
-  video: YouTubeVideo;
-  index: number;
-  onClick: () => void;
-}) {
-  return (
-    <motion.button
-      type="button"
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.06, duration: 0.25 }}
-      data-ocid={`alerts.video.item.${index + 1}`}
-      onClick={onClick}
-      style={{
-        background: "#1A1A1A",
-        border: "1px solid #2A2A2A",
-        borderRadius: 10,
-        overflow: "hidden",
-        cursor: "pointer",
-        textAlign: "left",
-        display: "block",
-        width: "100%",
-        padding: 0,
-      }}
-    >
-      {/* Thumbnail */}
-      <div
-        style={{
-          position: "relative",
-          aspectRatio: "16/9",
-          background: "#111",
-        }}
-      >
-        <img
-          src={video.thumbnail}
-          alt={video.title}
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            display: "block",
-          }}
-          onError={(e) => {
-            (e.currentTarget as HTMLImageElement).style.display = "none";
-          }}
-        />
-        {/* Play overlay */}
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "rgba(0,0,0,0.3)",
-          }}
-        >
-          <div
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: "50%",
-              background: GOLD_GRADIENT,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              boxShadow: "0 2px 12px rgba(212,175,55,0.4)",
-            }}
-          >
-            <Play size={14} color="rgba(0,0,0,0.8)" style={{ marginLeft: 2 }} />
-          </div>
-        </div>
-      </div>
-
-      {/* Info */}
-      <div style={{ padding: "10px 10px 12px" }}>
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: "#E8E8E8",
-            lineHeight: 1.4,
-            display: "-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical" as const,
-            overflow: "hidden",
-            marginBottom: 5,
-          }}
-        >
-          {video.title}
-        </div>
-        <div style={{ fontSize: 10, color: "#5A5A5A", fontWeight: 500 }}>
-          {video.channelTitle}
-        </div>
-      </div>
-    </motion.button>
-  );
-}
-
-// ── Video Player Modal ─────────────────────────────────────────────────────────
-
-function VideoPlayerModal({
-  video,
-  onClose,
-}: {
-  video: YouTubeVideo | null;
-  onClose: () => void;
-}) {
-  return (
-    <Dialog open={!!video} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent
-        data-ocid="alerts.video.modal"
-        style={{
-          background: "#0A0A0A",
-          border: "1px solid #2A2A2A",
-          borderRadius: 14,
-          maxWidth: 420,
-          padding: "0",
-          overflow: "hidden",
-        }}
-      >
-        {video && (
-          <>
-            {/* 16:9 iframe container */}
-            <div
-              style={{
-                position: "relative",
-                width: "100%",
-                paddingBottom: "56.25%",
-              }}
-            >
-              <iframe
-                src={`https://www.youtube.com/embed/${video.videoId}?autoplay=1`}
-                title={video.title}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  height: "100%",
-                  border: "none",
-                }}
-              />
-            </div>
-            {/* Video info */}
-            <div style={{ padding: "14px 16px 16px" }}>
-              <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "#E8E8E8",
-                  lineHeight: 1.4,
-                  marginBottom: 4,
-                }}
-              >
-                {video.title}
-              </div>
-              <div style={{ fontSize: 11, color: "#5A5A5A" }}>
-                {video.channelTitle}
-              </div>
-            </div>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // ── Full Empty State ───────────────────────────────────────────────────────────
 
 function FullEmptyState({ onRefresh }: { onRefresh: () => void }) {
@@ -935,25 +907,31 @@ export function AlertsScreen({
   isActive,
   onAlertTriggered,
   identity: _identity,
+  pendingAlert,
+  onClearPendingAlert,
 }: AlertsScreenProps) {
   const { actor: rawActor } = useActor();
   const actor = rawActor as unknown as FullBackend | null;
 
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [marketData, setMarketData] = useState<MarketData | null>(null);
-  const [videos, setVideos] = useState<YouTubeVideo[]>([]);
   const [loadingAlerts, setLoadingAlerts] = useState(true);
   const [loadingMarket, setLoadingMarket] = useState(true);
-  const [loadingVideos, setLoadingVideos] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
-  const [selectedVideo, setSelectedVideo] = useState<YouTubeVideo | null>(null);
   // Inline error indicator for the 60s alert-check interval
   const [alertCheckError, setAlertCheckError] = useState(false);
   // Tracks whether the initial load has been attempted at least once
   const loadAttemptedRef = useRef(false);
   // Issue 32: loadIdRef prevents stale loadAll from applying after tab switch
   const loadIdRef = useRef(0);
-  // isMounted guard — prevents state updates after the component unmounts (rapid tab switch)
+
+  // When a pending alert arrives from Markets, open the modal with pre-filled data
+  useEffect(() => {
+    if (pendingAlert) {
+      setCreateOpen(true);
+    }
+  }, [pendingAlert]);
+  // isMounted guard — prevents state updates after the component unmounts
   const isMountedRef = useRef(true);
   useEffect(() => {
     isMountedRef.current = true;
@@ -966,57 +944,26 @@ export function AlertsScreen({
   const alertsRef = useRef<Alert[]>([]);
   alertsRef.current = alerts;
 
-  // Track the current YouTube query to avoid redundant re-fetches
-  const currentQueryRef = useRef<string>("global financial markets today");
-
   // ── Data fetching ────────────────────────────────────────────────────────────
 
-  const fetchVideos = useCallback(
-    async (query?: string) => {
-      if (!actor) {
-        setLoadingVideos(false);
-        return;
-      }
-      const q = query ?? currentQueryRef.current;
-      try {
-        const data = await withTimeout(
-          actor.getYouTubeVideosByQuery(q),
-          [] as YouTubeVideo[],
-        );
-        setVideos(data.slice(0, 6));
-      } finally {
-        setLoadingVideos(false);
-      }
-    },
-    [actor],
-  );
-
-  // Core load function — called on initial tab open and on manual refresh
   const loadAll = useCallback(async () => {
-    // Issue 32: capture this load's ID to cancel stale executions
     const myId = ++loadIdRef.current;
 
     setLoadingAlerts(true);
     setLoadingMarket(true);
-    setLoadingVideos(true);
-    // Clear any lingering interval error on manual refresh
     setAlertCheckError(false);
 
-    // If no actor (logged out), stop spinners immediately — no canister calls
     if (!actor) {
       setLoadingAlerts(false);
       setLoadingMarket(false);
-      setLoadingVideos(false);
       return;
     }
 
-    // Fetch alerts and market data in parallel, each with an 8s timeout
     const [alertData, marketResult] = await Promise.all([
       withTimeout(actor.getAlerts(), [] as Alert[]),
       withTimeout(actor.getMarketData(), null as MarketData | null),
     ]);
 
-    // Bail if a newer loadAll has started or component unmounted
     if (loadIdRef.current !== myId || !isMountedRef.current) return;
 
     setAlerts(alertData);
@@ -1024,26 +971,12 @@ export function AlertsScreen({
 
     if (marketResult) setMarketData(marketResult);
     setLoadingMarket(false);
-
-    // Derive YouTube query from loaded alerts, then fetch videos
-    const q = deriveYouTubeQuery(alertData);
-    currentQueryRef.current = q;
-
-    const videoData = await withTimeout(
-      actor.getYouTubeVideosByQuery(q),
-      [] as YouTubeVideo[],
-    );
-
-    if (loadIdRef.current !== myId || !isMountedRef.current) return;
-    setVideos(videoData.slice(0, 6));
-    setLoadingVideos(false);
   }, [actor]);
 
-  // Initial load when tab becomes active — run once per actor instance
+  // Initial load when tab becomes active
   // biome-ignore lint/correctness/useExhaustiveDependencies: actor reset is intentional
   useEffect(() => {
     if (!isActive) return;
-    // Re-run whenever actor changes or tab becomes active
     loadAttemptedRef.current = false;
   }, [actor, isActive]);
 
@@ -1066,7 +999,6 @@ export function AlertsScreen({
       );
 
       for (const alert of activeUntriggered) {
-        // Issue 21: guard each alert individually so one malformed alert doesn't break the loop
         try {
           let currentPrice: number | null = null;
 
@@ -1080,6 +1012,11 @@ export function AlertsScreen({
               (c) => c.symbol === alert.symbol,
             );
             if (match) currentPrice = match.price;
+          } else if (alert.assetType === "currency") {
+            const match = currentMarketData.forex.find(
+              (f) => f.symbol === alert.symbol,
+            );
+            if (match) currentPrice = match.rate;
           }
 
           if (currentPrice === null) continue;
@@ -1096,6 +1033,8 @@ export function AlertsScreen({
               ),
             );
             onAlertTriggered({ ...alert, isTriggered: true });
+            // Fire push/local notification
+            fireAlertNotification(alert.symbol, alert.targetPrice);
           }
         } catch (err) {
           console.error("Alert check error for", alert.id, err);
@@ -1118,17 +1057,14 @@ export function AlertsScreen({
         if (!isMountedRef.current) return;
         if (freshMarket) {
           setMarketData(freshMarket);
-          // Clear any previous interval error on success
           setAlertCheckError(false);
           try {
             await checkAlerts(freshMarket);
           } catch (err) {
             console.error("checkAlerts error:", err);
-            // Surface error — keep previously-loaded alerts visible
             if (isMountedRef.current) setAlertCheckError(true);
           }
         } else {
-          // Market fetch timed out or returned null — surface error
           if (isMountedRef.current) setAlertCheckError(true);
         }
       } catch (err) {
@@ -1144,14 +1080,12 @@ export function AlertsScreen({
 
   async function handleToggle(id: string, active: boolean) {
     if (!actor) return;
-    // Issue 12: optimistic update first, revert on failure
     setAlerts((prev) =>
       prev.map((a) => (a.id === id ? { ...a, isActive: active } : a)),
     );
     try {
       await withTimeout(actor.updateAlert(id, active), false);
     } catch {
-      // Issue 12: revert optimistic update and show error
       setAlerts((prev) =>
         prev.map((a) => (a.id === id ? { ...a, isActive: !active } : a)),
       );
@@ -1165,18 +1099,8 @@ export function AlertsScreen({
     if (!actor) return;
     try {
       await withTimeout(actor.deleteAlert(id), false);
-      setAlerts((prev) => {
-        const updated = prev.filter((a) => a.id !== id);
-        const newQuery = deriveYouTubeQuery(updated);
-        if (newQuery !== currentQueryRef.current) {
-          currentQueryRef.current = newQuery;
-          setLoadingVideos(true);
-          fetchVideos(newQuery);
-        }
-        return updated;
-      });
+      setAlerts((prev) => prev.filter((a) => a.id !== id));
     } catch {
-      // Issue 12: show error — don't silently fail
       import("sonner").then(({ toast }) =>
         toast.error("Failed to delete alert. Please try again."),
       );
@@ -1204,17 +1128,10 @@ export function AlertsScreen({
         .slice(0, 5)
     : [];
 
-  // Determine if everything finished loading and nothing came back
-  const allLoaded = !loadingAlerts && !loadingMarket && !loadingVideos;
-  // Issue 25: nothingLoaded only triggers for logged-out users (actor is null).
-  // A logged-in user with no alerts should see the alert creation UI, not the empty state.
+  const allLoaded = !loadingAlerts && !loadingMarket;
   const isLoggedIn = !!rawActor;
   const nothingLoaded =
-    allLoaded &&
-    !isLoggedIn &&
-    alerts.length === 0 &&
-    !marketData &&
-    videos.length === 0;
+    allLoaded && !isLoggedIn && alerts.length === 0 && !marketData;
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
@@ -1291,215 +1208,144 @@ export function AlertsScreen({
     </section>
   );
 
-  const pulseAndVideosSection = (
-    <>
-      <section className="mb-8">
+  const pulseSection = (
+    <section className="mb-8">
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          marginBottom: 12,
+        }}
+      >
         <div
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            marginBottom: 12,
+            width: 3,
+            height: 16,
+            borderRadius: 2,
+            background: GOLD_GRADIENT,
+            flexShrink: 0,
+          }}
+        />
+        <h2
+          style={{
+            fontSize: 15,
+            fontWeight: 700,
+            color: "#E8E8E8",
+            margin: 0,
+            letterSpacing: "0.01em",
           }}
         >
-          <div
-            style={{
-              width: 3,
-              height: 16,
-              borderRadius: 2,
-              background: GOLD_GRADIENT,
-              flexShrink: 0,
-            }}
-          />
-          <h2
-            style={{
-              fontSize: 15,
-              fontWeight: 700,
-              color: "#E8E8E8",
-              margin: 0,
-              letterSpacing: "0.01em",
-            }}
-          >
-            Market Pulse
-          </h2>
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 600,
-              color: "#D4AF37",
-              background: "rgba(212,175,55,0.1)",
-              border: "1px solid rgba(212,175,55,0.2)",
-              borderRadius: 20,
-              padding: "2px 8px",
-              letterSpacing: "0.06em",
-            }}
-          >
-            TOP 5 MOVERS
-          </span>
-        </div>
-        {loadingMarket ? (
-          <div
-            data-ocid="alerts.pulse.loading_state"
-            className="flex gap-3 overflow-x-auto pb-2"
-          >
-            {PULSE_SKELETON_KEYS.map((k) => (
-              <Skeleton
-                key={k}
-                style={{
-                  minWidth: 130,
-                  height: 90,
-                  borderRadius: 12,
-                  background: "#1A1A1A",
-                  flexShrink: 0,
-                }}
-              />
-            ))}
-          </div>
-        ) : topMovers.length > 0 ? (
-          <div
-            data-ocid="alerts.pulse.list"
-            className="flex gap-3 overflow-x-auto pb-2"
-            style={{ scrollbarWidth: "none" }}
-          >
-            {topMovers.map((mover, i) => (
-              <PulseCard
-                key={mover.symbol}
-                symbol={mover.symbol}
-                name={mover.name}
-                price={mover.price}
-                change={mover.change}
-                index={i}
-              />
-            ))}
-          </div>
-        ) : (
-          <div
-            data-ocid="alerts.pulse.empty_state"
-            style={{
-              background: "#1A1A1A",
-              border: "1px solid rgba(212,175,55,0.15)",
-              borderRadius: 12,
-              padding: "20px 16px",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 10,
-              textAlign: "center",
-            }}
-          >
-            <div style={{ fontSize: 22, lineHeight: 1 }}>📡</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#E8E8E8" }}>
-              Unable to fetch market data
-            </div>
-            <div style={{ fontSize: 12, color: "#5A5A5A", lineHeight: 1.5 }}>
-              This may be a temporary connection issue. Tap to retry.
-            </div>
-            <button
-              type="button"
-              data-ocid="alerts.pulse.retry_button"
-              onClick={() => {
-                setLoadingMarket(true);
-                if (actor) {
-                  withTimeout(actor.getMarketData(), null as MarketData | null)
-                    .then((result) => {
-                      if (result) setMarketData(result);
-                    })
-                    .finally(() => setLoadingMarket(false));
-                } else {
-                  setLoadingMarket(false);
-                }
-              }}
+          Market Pulse
+        </h2>
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            color: "#D4AF37",
+            background: "rgba(212,175,55,0.1)",
+            border: "1px solid rgba(212,175,55,0.2)",
+            borderRadius: 20,
+            padding: "2px 8px",
+            letterSpacing: "0.06em",
+          }}
+        >
+          TOP 5 MOVERS
+        </span>
+      </div>
+      {loadingMarket ? (
+        <div
+          data-ocid="alerts.pulse.loading_state"
+          className="flex gap-3 overflow-x-auto pb-2"
+        >
+          {PULSE_SKELETON_KEYS.map((k) => (
+            <Skeleton
+              key={k}
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                background:
-                  "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)",
-                border: "none",
-                borderRadius: 10,
-                padding: "8px 18px",
-                fontSize: 13,
-                fontWeight: 700,
-                color: "rgba(0,0,0,0.85)",
-                cursor: "pointer",
-                boxShadow: "0 2px 12px rgba(212,175,55,0.3)",
+                minWidth: 130,
+                height: 90,
+                borderRadius: 12,
+                background: "#1A1A1A",
+                flexShrink: 0,
               }}
-            >
-              <RefreshCw size={13} />
-              Retry
-            </button>
-          </div>
-        )}
-      </section>
-
-      <section>
+            />
+          ))}
+        </div>
+      ) : topMovers.length > 0 ? (
         <div
+          data-ocid="alerts.pulse.list"
+          className="flex gap-3 overflow-x-auto pb-2"
+          style={{ scrollbarWidth: "none" }}
+        >
+          {topMovers.map((mover, i) => (
+            <PulseCard
+              key={mover.symbol}
+              symbol={mover.symbol}
+              name={mover.name}
+              price={mover.price}
+              change={mover.change}
+              index={i}
+            />
+          ))}
+        </div>
+      ) : (
+        <div
+          data-ocid="alerts.pulse.empty_state"
           style={{
+            background: "#1A1A1A",
+            border: "1px solid rgba(212,175,55,0.15)",
+            borderRadius: 12,
+            padding: "20px 16px",
             display: "flex",
+            flexDirection: "column",
             alignItems: "center",
-            gap: 8,
-            marginBottom: 12,
+            gap: 10,
+            textAlign: "center",
           }}
         >
-          <div
+          <div style={{ fontSize: 22, lineHeight: 1 }}>📡</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#E8E8E8" }}>
+            Unable to fetch market data
+          </div>
+          <div style={{ fontSize: 12, color: "#5A5A5A", lineHeight: 1.5 }}>
+            This may be a temporary connection issue. Tap to retry.
+          </div>
+          <button
+            type="button"
+            data-ocid="alerts.pulse.retry_button"
+            onClick={() => {
+              setLoadingMarket(true);
+              if (actor) {
+                withTimeout(actor.getMarketData(), null as MarketData | null)
+                  .then((result) => {
+                    if (result) setMarketData(result);
+                  })
+                  .finally(() => setLoadingMarket(false));
+              } else {
+                setLoadingMarket(false);
+              }
+            }}
             style={{
-              width: 3,
-              height: 16,
-              borderRadius: 2,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
               background: GOLD_GRADIENT,
-              flexShrink: 0,
-            }}
-          />
-          <h2
-            style={{
-              fontSize: 15,
-              fontWeight: 700,
-              color: "#E8E8E8",
-              margin: 0,
-              letterSpacing: "0.01em",
-            }}
-          >
-            Financial Education
-          </h2>
-        </div>
-        {loadingVideos ? (
-          <div
-            data-ocid="alerts.video.loading_state"
-            className="grid grid-cols-2 gap-3"
-          >
-            {VIDEO_SKELETON_KEYS.map((k) => (
-              <Skeleton
-                key={k}
-                style={{ height: 140, borderRadius: 10, background: "#1A1A1A" }}
-              />
-            ))}
-          </div>
-        ) : videos.length > 0 ? (
-          <div data-ocid="alerts.video.list" className="grid grid-cols-2 gap-3">
-            {videos.map((video, i) => (
-              <VideoCard
-                key={video.videoId}
-                video={video}
-                index={i}
-                onClick={() => setSelectedVideo(video)}
-              />
-            ))}
-          </div>
-        ) : (
-          <div
-            data-ocid="alerts.video.empty_state"
-            style={{
-              textAlign: "center",
-              padding: "24px 0",
-              color: "#4A4A4A",
+              border: "none",
+              borderRadius: 10,
+              padding: "8px 18px",
               fontSize: 13,
+              fontWeight: 700,
+              color: "rgba(0,0,0,0.85)",
+              cursor: "pointer",
+              boxShadow: "0 2px 12px rgba(212,175,55,0.3)",
             }}
           >
-            Videos unavailable
-          </div>
-        )}
-      </section>
-    </>
+            <RefreshCw size={13} />
+            Retry
+          </button>
+        </div>
+      )}
+    </section>
   );
 
   return (
@@ -1561,7 +1407,7 @@ export function AlertsScreen({
           </button>
         </div>
 
-        {/* ── Interval error banner — shown when the 60s alert check fails ── */}
+        {/* ── Interval error banner ── */}
         {alertCheckError && (
           <div
             data-ocid="alerts.check.error_banner"
@@ -1613,39 +1459,41 @@ export function AlertsScreen({
             {/* Mobile: single column */}
             <div className="lg:hidden">
               {alertsSection}
-              {pulseAndVideosSection}
+              {pulseSection}
             </div>
 
             {/* Desktop: two-column grid */}
             <div className="hidden lg:grid lg:grid-cols-[1fr_400px] lg:gap-8 lg:items-start">
               <div>{alertsSection}</div>
-              <div>{pulseAndVideosSection}</div>
+              <div>{pulseSection}</div>
             </div>
           </>
         )}
       </div>
 
-      {/* ── Modals ── */}
+      {/* ── Create Alert Modal ── */}
       <CreateAlertModal
         open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        onCreated={(alert) => {
-          setAlerts((prev) => {
-            const updated = [alert, ...prev];
-            const newQuery = deriveYouTubeQuery(updated);
-            if (newQuery !== currentQueryRef.current) {
-              currentQueryRef.current = newQuery;
-              setLoadingVideos(true);
-              fetchVideos(newQuery);
-            }
-            return updated;
-          });
+        onClose={() => {
+          setCreateOpen(false);
+          onClearPendingAlert?.();
         }}
-      />
-
-      <VideoPlayerModal
-        video={selectedVideo}
-        onClose={() => setSelectedVideo(null)}
+        alertCount={alerts.length}
+        marketData={marketData}
+        presetSymbol={pendingAlert?.symbol}
+        presetAssetType={
+          pendingAlert?.assetType === "forex"
+            ? "currency"
+            : (pendingAlert?.assetType as
+                | "stock"
+                | "crypto"
+                | "currency"
+                | undefined)
+        }
+        presetPrice={pendingAlert?.currentPrice}
+        onCreated={(alert) => {
+          setAlerts((prev) => [alert, ...prev]);
+        }}
       />
     </div>
   );

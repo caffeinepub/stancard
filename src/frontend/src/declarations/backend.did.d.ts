@@ -243,6 +243,7 @@ export interface _SERVICE {
     Array<AcceptedDeliveryWithTracking>
   >,
   'getAdminList' : ActorMethod<[], Array<Principal>>,
+  'getAdminStatus' : ActorMethod<[], boolean>,
   'getAlerts' : ActorMethod<[], Array<Alert>>,
   'getAllRiderVerifications' : ActorMethod<
     [],
@@ -259,6 +260,10 @@ export interface _SERVICE {
   'getMarketData' : ActorMethod<[], MarketData>,
   'getMatchedRiders' : ActorMethod<[string, string], Array<RiderRoute>>,
   'getNewsData' : ActorMethod<[], NewsData>,
+  /**
+   * / Retrieve the caller's stored push notification subscription JSON, if any.
+   */
+  'getNotificationSubscription' : ActorMethod<[], [] | [string]>,
   'getRiderRoutes' : ActorMethod<[], Array<RiderRoute>>,
   'getRiderVerification' : ActorMethod<[], [] | [RiderVerification]>,
   'getSavingsGoals' : ActorMethod<[], Array<SavingsGoal>>,
@@ -294,6 +299,11 @@ export interface _SERVICE {
   'rejectSenderVerification' : ActorMethod<[Principal, string], AdminResult>,
   'removeAdmin' : ActorMethod<[Principal], AdminResult>,
   'respondToRequest' : ActorMethod<[string, boolean], MoveResult>,
+  /**
+   * / Store the caller's Web Push subscription JSON (VAPID) so the service
+   * / worker can retrieve it and send notifications for triggered alerts.
+   */
+  'saveNotificationSubscription' : ActorMethod<[string], undefined>,
   'saveUserProfile' : ActorMethod<
     [string, string, string, boolean, boolean],
     UserProfile

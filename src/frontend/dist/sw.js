@@ -92,3 +92,48 @@ self.addEventListener('message', (event) => {
     });
   }
 });
+
+// ── Web Push: show notification when an alert triggers ──
+// Expected payload: { title: string, body: string, url: string }
+self.addEventListener('push', (event) => {
+  let payload = { title: 'Stancard Alert', body: 'A price alert was triggered.', url: '/' };
+  if (event.data) {
+    try {
+      payload = { ...payload, ...event.data.json() };
+    } catch {
+      payload.body = event.data.text() || payload.body;
+    }
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: '/icon-192.png',
+      badge: '/icon-72.png',
+      tag: 'stancard-alert',
+      renotify: true,
+      data: { url: payload.url || '/' },
+    })
+  );
+});
+
+// ── Notification click: open or focus the app ──
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data?.url || '/';
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      // Focus an existing window if one is open
+      for (const client of clients) {
+        if (client.url === targetUrl && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Otherwise open a new window
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl);
+      }
+    })
+  );
+});

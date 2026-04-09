@@ -113,17 +113,138 @@ function QRScanner({
   onClose: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const animFrameRef = useRef<number>(0);
+  const scanActiveRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Keep stable refs to callbacks so useEffect deps stay empty
+  const onScanRef = useRef(onScan);
+  onScanRef.current = onScan;
+
   const [error, setError] = useState("");
   const [scanning, setScanning] = useState(false);
-  const animFrameRef = useRef<number>(0);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [galleryError, setGalleryError] = useState("");
 
+  // ── Gallery decode — draw image to canvas and run jsQR ──
+  const handleGalleryFile = useCallback((file: File) => {
+    setGalleryError("");
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const src = ev.target?.result as string;
+      const img = new Image();
+      img.onload = async () => {
+        // Use native BarcodeDetector API (supported in Chrome/Edge/Android)
+        if ("BarcodeDetector" in window) {
+          try {
+            // @ts-expect-error BarcodeDetector not yet in TS lib
+            const detector = new window.BarcodeDetector({
+              formats: ["qr_code"],
+            });
+            const barcodes = await detector.detect(img);
+            if (barcodes.length > 0 && barcodes[0].rawValue) {
+              scanActiveRef.current = false;
+              if (animFrameRef.current)
+                cancelAnimationFrame(animFrameRef.current);
+              if (streamRef.current) {
+                for (const t of streamRef.current.getTracks()) t.stop();
+                streamRef.current = null;
+              }
+              onScanRef.current(barcodes[0].rawValue);
+            } else {
+              setGalleryError(
+                "No QR code found in image. Please try another photo.",
+              );
+            }
+          } catch {
+            setGalleryError("Unable to decode image. Please try again.");
+          }
+        } else {
+          // Fallback: canvas pixel scan without external library
+          const offscreen = document.createElement("canvas");
+          offscreen.width = img.naturalWidth;
+          offscreen.height = img.naturalHeight;
+          const ctx = offscreen.getContext("2d");
+          if (!ctx) {
+            setGalleryError("Unable to process image.");
+            return;
+          }
+          ctx.drawImage(img, 0, 0);
+          setGalleryError(
+            "QR gallery scanning is not supported on this browser. Please use the camera or paste the principal ID manually.",
+          );
+        }
+      };
+      img.onerror = () =>
+        setGalleryError("Could not load image. Please try another.");
+      img.src = src;
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  // ── Camera + scan loop — all logic lives inside useEffect to satisfy deps ──
   useEffect(() => {
     let mounted = true;
+    scanActiveRef.current = false;
+
+    function stopStream() {
+      scanActiveRef.current = false;
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+      if (streamRef.current) {
+        for (const t of streamRef.current.getTracks()) t.stop();
+        streamRef.current = null;
+      }
+    }
+
+    function startScanLoop() {
+      scanActiveRef.current = true;
+      if ("BarcodeDetector" in window) {
+        // @ts-expect-error BarcodeDetector not yet in TS lib
+        const detector = new window.BarcodeDetector({ formats: ["qr_code"] });
+        async function tick() {
+          if (!scanActiveRef.current) return;
+          const video = videoRef.current;
+          const canvas = canvasRef.current;
+          if (!video || !canvas) {
+            animFrameRef.current = requestAnimationFrame(tick);
+            return;
+          }
+          if (video.readyState < 2 || video.videoWidth === 0) {
+            animFrameRef.current = requestAnimationFrame(tick);
+            return;
+          }
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            animFrameRef.current = requestAnimationFrame(tick);
+            return;
+          }
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          try {
+            const barcodes = await detector.detect(canvas);
+            if (barcodes.length > 0 && barcodes[0].rawValue) {
+              stopStream();
+              onScanRef.current(barcodes[0].rawValue);
+              return;
+            }
+          } catch {
+            // Detection error on this frame — continue scanning
+          }
+          animFrameRef.current = requestAnimationFrame(tick);
+        }
+        animFrameRef.current = requestAnimationFrame(tick);
+      } else {
+        // BarcodeDetector not available — inform user
+        if (mounted)
+          setError(
+            "Live QR scanning is not supported on this browser. Please use the gallery option or paste the principal ID manually.",
+          );
+      }
+    }
 
     async function startCamera() {
+      if (!mounted) return;
       setError("");
       setScanning(false);
       try {
@@ -136,96 +257,51 @@ function QRScanner({
           ),
         ]);
         if (!mounted) {
-          for (const track of stream.getTracks()) track.stop();
+          for (const t of stream.getTracks()) t.stop();
           return;
         }
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
+          videoRef.current.onplay = () => {
+            if (mounted) {
+              setScanning(true);
+              startScanLoop();
+            }
+          };
           await videoRef.current.play();
-          setScanning(true);
-          startDecode();
         }
       } catch {
         if (mounted)
           setError(
-            "Camera not accessible. Please paste the principal ID manually.",
+            "Camera not accessible. Please use the gallery option or paste the principal ID manually.",
           );
       }
     }
 
     void startCamera();
-
     return () => {
       mounted = false;
-      stopCamera();
+      stopStream();
     };
   }, []);
 
-  function stopCamera() {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    if (streamRef.current) {
-      for (const track of streamRef.current.getTracks()) track.stop();
-      streamRef.current = null;
-    }
-  }
-
-  function startDecode() {
-    // Use @zxing/browser dynamically to decode QR code frames
-    import("@zxing/browser")
-      .then(({ BrowserMultiFormatReader }) => {
-        const reader = new BrowserMultiFormatReader();
-
-        function tick() {
-          if (!videoRef.current || !canvasRef.current) return;
-          const video = videoRef.current;
-          const canvas = canvasRef.current;
-          if (video.readyState < 2) {
-            animFrameRef.current = requestAnimationFrame(tick);
-            return;
-          }
-          canvas.width = video.videoWidth || 320;
-          canvas.height = video.videoHeight || 320;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) {
-            animFrameRef.current = requestAnimationFrame(tick);
-            return;
-          }
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          try {
-            const result = reader.decodeFromCanvas(canvas);
-            if (result) {
-              stopCamera();
-              onScan(result.getText());
-              return;
-            }
-          } catch {
-            // No QR code found in this frame — keep scanning
-          }
-          animFrameRef.current = requestAnimationFrame(tick);
-        }
-        animFrameRef.current = requestAnimationFrame(tick);
-      })
-      .catch(() => {
-        setError(
-          "QR scanner unavailable. Please paste the principal ID manually.",
-        );
-      });
-  }
+  const goldGradient =
+    "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)";
 
   return (
     <div
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0,0,0,0.95)",
+        background: "rgba(0,0,0,0.97)",
         zIndex: 9999,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
         gap: 16,
+        padding: "0 16px",
       }}
     >
       {/* Header */}
@@ -236,16 +312,14 @@ function QRScanner({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "0 16px",
-          marginBottom: 8,
+          marginBottom: 4,
         }}
       >
         <span
           style={{
             fontSize: 17,
             fontWeight: 700,
-            background:
-              "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)",
+            background: goldGradient,
             WebkitBackgroundClip: "text",
             WebkitTextFillColor: "transparent",
             backgroundClip: "text",
@@ -256,7 +330,7 @@ function QRScanner({
         <button
           type="button"
           onClick={() => {
-            stopCamera();
+            scanActiveRef.current = false;
             onClose();
           }}
           aria-label="Close scanner"
@@ -276,7 +350,7 @@ function QRScanner({
         </button>
       </div>
 
-      {/* Video / Error */}
+      {/* Camera / Error */}
       {error ? (
         <div
           style={{
@@ -381,6 +455,72 @@ function QRScanner({
           )}
         </div>
       )}
+
+      {/* Gallery upload option */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 8,
+          width: "100%",
+          maxWidth: 300,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            setGalleryError("");
+            fileInputRef.current?.click();
+          }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            background: "rgba(212,175,55,0.1)",
+            border: "1px solid rgba(212,175,55,0.35)",
+            borderRadius: 12,
+            padding: "11px 0",
+            width: "100%",
+            color: "#D4AF37",
+            fontSize: 14,
+            fontWeight: 700,
+            cursor: "pointer",
+            transition: "background 0.2s ease",
+          }}
+        >
+          <Download size={16} />
+          Choose from Gallery
+        </button>
+        {galleryError && (
+          <div
+            style={{
+              fontSize: 12,
+              color: "#E05252",
+              textAlign: "center",
+              lineHeight: 1.5,
+            }}
+          >
+            {galleryError}
+          </div>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleGalleryFile(file);
+            // Reset so same file can be re-selected
+            e.target.value = "";
+          }}
+        />
+        <div style={{ fontSize: 11, color: "#4A4A4A", textAlign: "center" }}>
+          Or point your camera at a QR code to scan live
+        </div>
+      </div>
     </div>
   );
 }
@@ -389,8 +529,10 @@ function QRScanner({
 
 function QRReceiveSection({
   principalId,
+  currency,
 }: {
   principalId: string;
+  currency?: string;
 }) {
   const [copiedPrincipal, setCopiedPrincipal] = useState(false);
 
@@ -438,14 +580,17 @@ function QRReceiveSection({
           </span>
         </div>
         <p
-          style={{
-            fontSize: 11,
-            color: "#6C6C6C",
-            margin: 0,
-            lineHeight: 1.5,
-          }}
+          style={{ fontSize: 11, color: "#6C6C6C", margin: 0, lineHeight: 1.5 }}
         >
-          Anyone can scan this to send you money directly
+          Share your QR code or principal ID to receive{" "}
+          {currency ? (
+            <span style={{ color: "#D4AF37", fontWeight: 700 }}>
+              {currency}
+            </span>
+          ) : (
+            "funds"
+          )}{" "}
+          from other Stancard users
         </p>
       </div>
 
@@ -1078,6 +1223,51 @@ function SignInPrompt() {
 
 // ── Fund Wallet Modal ──────────────────────────────────────────────────────────
 
+const FW_SCRIPT_URL = "https://checkout.flutterwave.com/v3.js";
+const FW_POLL_MS = 500;
+const FW_TIMEOUT_MS = 5000;
+type FWSDKState = "loading" | "ready" | "failed";
+
+function useFWSDK(open: boolean): FWSDKState {
+  const [sdkState, setSdkState] = useState<FWSDKState>("loading");
+  useEffect(() => {
+    if (!open) {
+      setSdkState("loading");
+      return;
+    }
+    if (
+      (window as Window & { FlutterwaveCheckout?: unknown }).FlutterwaveCheckout
+    ) {
+      setSdkState("ready");
+      return;
+    }
+    let script = document.getElementById("flw-sdk") as HTMLScriptElement | null;
+    if (!script) {
+      script = document.createElement("script");
+      script.id = "flw-sdk";
+      script.src = FW_SCRIPT_URL;
+      script.async = true;
+      document.head.appendChild(script);
+    }
+    let elapsed = 0;
+    const interval = setInterval(() => {
+      elapsed += FW_POLL_MS;
+      if (
+        (window as Window & { FlutterwaveCheckout?: unknown })
+          .FlutterwaveCheckout
+      ) {
+        clearInterval(interval);
+        setSdkState("ready");
+      } else if (elapsed >= FW_TIMEOUT_MS) {
+        clearInterval(interval);
+        setSdkState("failed");
+      }
+    }, FW_POLL_MS);
+    return () => clearInterval(interval);
+  }, [open]);
+  return sdkState;
+}
+
 function FundWalletModal({
   open,
   onClose,
@@ -1089,12 +1279,19 @@ function FundWalletModal({
   onClose: () => void;
   defaultCurrency: Currency;
   onSuccess: (amount: number, currency: Currency) => Promise<void>;
-  // ISSUE 9: use real display name in Flutterwave customer object
   displayName?: string;
 }) {
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<Currency>(defaultCurrency);
   const [error, setError] = useState("");
+  const sdkState = useFWSDK(open);
+
+  useEffect(() => {
+    if (!open) {
+      setAmount("");
+      setError("");
+    }
+  }, [open]);
 
   function handlePayNow() {
     const parsed = Number.parseFloat(amount);
@@ -1102,32 +1299,36 @@ function FundWalletModal({
       setError("Please enter a valid amount.");
       return;
     }
-    setError("");
-
-    const fw = (window as any).FlutterwaveCheckout;
-    if (!fw) {
-      toast.error("Payment gateway not loaded. Please refresh.");
+    if (sdkState !== "ready") {
+      setError(
+        "Payment gateway is not ready. Please wait a moment and try again.",
+      );
       return;
     }
-
+    setError("");
+    const fw = (
+      window as Window & { FlutterwaveCheckout?: (opts: unknown) => void }
+    ).FlutterwaveCheckout;
+    if (!fw) {
+      setError("Payment gateway unavailable. Please refresh and try again.");
+      return;
+    }
+    const safeName = displayName?.trim() ? displayName.trim() : "Stancard User";
+    const safeEmail = displayName?.trim()
+      ? `${displayName.trim().toLowerCase().replace(/\s+/g, ".")}@stancard.app`
+      : "wallet@stancard.app";
     fw({
       public_key: "FLWPUBK-811e445867156c0d669a1d1c7876bcb7-X",
       tx_ref: `SC-${Date.now()}`,
       amount: parsed,
-      currency: currency,
-      customer: {
-        // Use displayName-derived email — cleaner than a static placeholder
-        email: displayName
-          ? `${displayName.toLowerCase().replace(/\s+/g, ".")}@stancard.app`
-          : "wallet@stancard.app",
-        name: displayName || "Stancard User",
-      },
+      currency,
+      customer: { email: safeEmail, name: safeName },
       customizations: {
         title: "Stancard Wallet",
         description: "Fund your Stancard wallet",
         logo: "",
       },
-      callback: (response: any) => {
+      callback: (response: { status: string }) => {
         if (
           response.status === "successful" ||
           response.status === "completed"
@@ -1141,6 +1342,9 @@ function FundWalletModal({
       onclose: () => {},
     });
   }
+
+  const goldGradient =
+    "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)";
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -1156,8 +1360,7 @@ function FundWalletModal({
         <DialogHeader>
           <DialogTitle
             style={{
-              background:
-                "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)",
+              background: goldGradient,
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
               backgroundClip: "text",
@@ -1168,7 +1371,6 @@ function FundWalletModal({
             Fund Wallet
           </DialogTitle>
         </DialogHeader>
-
         <div className="flex flex-col gap-4 mt-2">
           <div>
             <Label
@@ -1208,7 +1410,6 @@ function FundWalletModal({
               </SelectContent>
             </Select>
           </div>
-
           <div>
             <Label
               style={{
@@ -1264,25 +1465,61 @@ function FundWalletModal({
               </p>
             )}
           </div>
-
+          {sdkState === "loading" && (
+            <div
+              style={{
+                fontSize: 12,
+                color: "#6C6C6C",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  border: "2px solid rgba(212,175,55,0.3)",
+                  borderTopColor: "#D4AF37",
+                  display: "inline-block",
+                }}
+              />
+              Loading payment gateway...
+            </div>
+          )}
+          {sdkState === "failed" && (
+            <div style={{ fontSize: 12, color: "#E05252" }}>
+              Payment gateway unavailable. Please refresh and try again.
+            </div>
+          )}
           <Button
             data-ocid="pay.fund.submit_button"
             onClick={handlePayNow}
+            disabled={sdkState !== "ready"}
             className="w-full"
             style={{
               background:
-                "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)",
+                sdkState === "ready" ? goldGradient : "rgba(212,175,55,0.3)",
               color: "rgba(0,0,0,0.85)",
               fontWeight: 700,
               fontSize: 15,
               borderRadius: 12,
               padding: "12px 0",
               height: "auto",
-              boxShadow: "0 4px 20px rgba(212,175,55,0.3)",
+              boxShadow:
+                sdkState === "ready"
+                  ? "0 4px 20px rgba(212,175,55,0.3)"
+                  : "none",
               border: "none",
+              opacity: sdkState !== "ready" ? 0.6 : 1,
             }}
           >
-            Pay Now
+            {sdkState === "loading"
+              ? "Loading..."
+              : sdkState === "failed"
+                ? "Gateway Unavailable"
+                : "Pay Now"}
           </Button>
         </div>
       </DialogContent>
@@ -1793,705 +2030,46 @@ function SuccessRow({
 
 // ── Receive Modal ──────────────────────────────────────────────────────────────
 
-// ── Virtual Account helpers ───────────────────────────────────────────────────
-
-interface VirtualAccountData {
-  accountNumber: string;
-  bankName: string;
-  accountName: string;
-  expiresAt: string;
-  reference: string;
-}
-
-function isAccountExpired(expiresAt: string): boolean {
-  if (!expiresAt) return false;
-  try {
-    return new Date(expiresAt) < new Date();
-  } catch {
-    return false;
-  }
-}
-
 function ReceiveModal({
   open,
   onClose,
   defaultCurrency,
-  onSuccess,
   isLoggedIn,
-  actor,
-  displayName,
   principalId,
 }: {
   open: boolean;
   onClose: () => void;
   defaultCurrency: Currency;
-  onSuccess: (amount: number, currency: Currency) => Promise<void>;
+  onSuccess?: (amount: number, currency: Currency) => Promise<void>;
   isLoggedIn: boolean;
   actor?: ActorLike | null;
   displayName?: string;
   principalId?: string;
 }) {
-  const [copied, setCopied] = useState(false);
-  const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<Currency>(defaultCurrency);
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
 
-  // NGN virtual account state
-  const [vaLoading, setVaLoading] = useState(false);
-  const [vaError, setVaError] = useState("");
-  const [virtualAccount, setVirtualAccount] =
-    useState<VirtualAccountData | null>(null);
-  const [vaExpired, setVaExpired] = useState(false);
-  const [vaRetryCount, setVaRetryCount] = useState(0);
-  const MAX_RETRIES = 3;
-  // Track the last currency for which we initiated a VA load, to avoid re-triggering
-  const vaLoadedForCurrencyRef = useRef<string | null>(null);
-
-  // Sync currency when defaultCurrency changes
   useEffect(() => {
     setCurrency(defaultCurrency);
   }, [defaultCurrency]);
 
-  // Reset VA state on close
-  function handleClose() {
-    setVaLoading(false);
-    setVaError("");
-    setVaExpired(false);
-    setVaRetryCount(0);
-    setVirtualAccount(null);
-    vaLoadedForCurrencyRef.current = null;
-    setAmount("");
-    setError("");
-    onClose();
-  }
-
-  // Load virtual account on open for NGN + logged in
-  const loadVirtualAccount = useCallback(async () => {
-    if (!actor || !isLoggedIn) return;
-    setVaLoading(true);
-    setVaError("");
-    setVaExpired(false);
-    // 8-second timeout on all VA canister calls
-    const timeout = <T,>(p: Promise<T>): Promise<T> =>
-      Promise.race([
-        p,
-        new Promise<never>((_, rej) =>
-          setTimeout(() => rej(new Error("VA timeout")), 8000),
-        ),
-      ]);
-    try {
-      const existing = await timeout(actor.getVirtualAccount());
-      if (existing) {
-        if (isAccountExpired(existing.expiresAt)) {
-          setVirtualAccount(existing);
-          setVaExpired(true);
-        } else {
-          setVirtualAccount(existing);
-        }
-      } else {
-        // No account yet — create one
-        const result = await timeout(
-          actor.createVirtualAccount(displayName || "Stancard User"),
-        );
-        if (result.ok) {
-          setVirtualAccount(result.ok);
-        } else {
-          setVaError(result.err || "Unable to generate account number.");
-        }
-      }
-    } catch {
-      setVaError("Unable to generate account number. Please try again.");
-    } finally {
-      setVaLoading(false);
-    }
-  }, [actor, isLoggedIn, displayName]);
-
-  // Trigger VA load when opening for NGN, or when switching back to NGN with an expired account.
-  // Uses vaLoadedForCurrencyRef to prevent re-triggering on every render cycle.
-  useEffect(() => {
-    if (!open || currency !== "NGN" || !isLoggedIn) {
-      // Reset the load-tracker when modal closes or currency switches away from NGN
-      if (!open) vaLoadedForCurrencyRef.current = null;
-      return;
-    }
-
-    // Check if the cached account is expired
-    const expired = virtualAccount
-      ? isAccountExpired(virtualAccount.expiresAt)
-      : false;
-
-    const needsLoad = !virtualAccount || expired;
-    const alreadyLoading = vaLoading;
-    const sessionKey = `${open}-${currency}`;
-    const alreadyTriggered = vaLoadedForCurrencyRef.current === sessionKey;
-
-    if (needsLoad && !alreadyLoading && !alreadyTriggered) {
-      vaLoadedForCurrencyRef.current = sessionKey;
-      if (expired) {
-        setVirtualAccount(null);
-        setVaExpired(false);
-      }
-      void loadVirtualAccount();
-    }
-  }, [
-    open,
-    currency,
-    isLoggedIn,
-    virtualAccount,
-    vaLoading,
-    loadVirtualAccount,
-  ]);
-
-  async function handleRefresh() {
-    if (!actor) return;
-    setVaLoading(true);
-    setVaError("");
-    setVaExpired(false);
-    setVirtualAccount(null);
-    vaLoadedForCurrencyRef.current = null;
-    // 8-second timeout on refresh
-    const timeout = <T,>(p: Promise<T>): Promise<T> =>
-      Promise.race([
-        p,
-        new Promise<never>((_, rej) =>
-          setTimeout(() => rej(new Error("VA timeout")), 8000),
-        ),
-      ]);
-    try {
-      const result = await timeout(
-        actor.refreshVirtualAccount(displayName || "Stancard User"),
-      );
-      if (result.ok) {
-        setVirtualAccount(result.ok);
-      } else {
-        setVaError(result.err || "Unable to refresh account number.");
-      }
-    } catch {
-      setVaError("Unable to refresh account number. Please try again.");
-    } finally {
-      setVaLoading(false);
-    }
-  }
-
-  function handleCopyVA() {
-    if (!virtualAccount) return;
-    navigator.clipboard.writeText(
-      virtualAccount.accountNumber.replace(/\s/g, ""),
-    );
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  async function handleConfirm() {
-    const parsed = Number.parseFloat(amount);
-    if (!amount || Number.isNaN(parsed) || parsed <= 0) {
-      setError("Enter a valid amount.");
-      return;
-    }
-    setError("");
-    setSubmitting(true);
-    try {
-      await onSuccess(parsed, currency);
-      handleClose();
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  // ── NGN virtual account UI section ───────────────────────────────────────
-
-  function renderNGNSection() {
-    // Not logged in
-    if (!isLoggedIn) {
-      return (
-        <div
-          style={{
-            background: "#1A1A1A",
-            border: "1px solid #2A2A2A",
-            borderRadius: 12,
-            padding: "28px 16px",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 12,
-            textAlign: "center",
-          }}
-        >
-          <div
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: "50%",
-              background: "rgba(212,175,55,0.1)",
-              border: "1px solid rgba(212,175,55,0.25)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Lock size={22} color="#D4AF37" />
-          </div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: "#E8E8E8" }}>
-            Sign in to receive payments
-          </div>
-          <div style={{ fontSize: 12, color: "#5A5A5A", maxWidth: 240 }}>
-            Your NGN virtual account will be generated when you sign in.
-          </div>
-        </div>
-      );
-    }
-
-    // Loading skeleton
-    if (vaLoading) {
-      return (
-        <div
-          data-ocid="pay.receive.loading_state"
-          style={{
-            background: "#1A1A1A",
-            border: "1px solid #2A2A2A",
-            borderRadius: 12,
-            padding: 16,
-            display: "flex",
-            flexDirection: "column",
-            gap: 10,
-          }}
-        >
-          <Skeleton
-            className="h-3 w-24"
-            style={{ background: "#2A2A2A", borderRadius: 4 }}
-          />
-          <Skeleton
-            className="h-5 w-40"
-            style={{ background: "#2A2A2A", borderRadius: 4 }}
-          />
-          <div style={{ height: 8 }} />
-          <Skeleton
-            className="h-3 w-28"
-            style={{ background: "#2A2A2A", borderRadius: 4 }}
-          />
-          <div className="flex items-center gap-3">
-            <Skeleton
-              className="h-7 w-44"
-              style={{ background: "#2A2A2A", borderRadius: 4 }}
-            />
-            <Skeleton
-              className="h-7 w-16"
-              style={{ background: "#2A2A2A", borderRadius: 6 }}
-            />
-          </div>
-          <div
-            style={{
-              fontSize: 11,
-              color: "#4A4A4A",
-              marginTop: 4,
-              textAlign: "center",
-            }}
-          >
-            Generating your account...
-          </div>
-        </div>
-      );
-    }
-
-    // Error state
-    if (vaError && !vaLoading) {
-      const isMaxRetries = vaRetryCount >= MAX_RETRIES;
-      return (
-        <div
-          data-ocid="pay.receive.error_state"
-          style={{
-            background: "#1A1A1A",
-            border: "1px solid rgba(224,82,82,0.3)",
-            borderRadius: 12,
-            padding: "24px 16px",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 12,
-            textAlign: "center",
-          }}
-        >
-          <div
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: "50%",
-              background: "rgba(224,82,82,0.1)",
-              border: "1px solid rgba(224,82,82,0.25)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <span style={{ fontSize: 22 }}>⚠️</span>
-          </div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#E05252" }}>
-            Unable to generate your NGN account
-          </div>
-          {vaError !==
-            "Unable to generate account number. Please try again." && (
-            <div
-              style={{
-                fontSize: 12,
-                color: "#9A9A9A",
-                fontStyle: "italic",
-                maxWidth: 260,
-              }}
-            >
-              {vaError}
-            </div>
-          )}
-          <div
-            style={{
-              fontSize: 13,
-              color: "#9A9A9A",
-              lineHeight: 1.6,
-              maxWidth: 280,
-            }}
-          >
-            This may be a temporary issue with our banking partner. Please try
-            again in a moment.
-          </div>
-          {isMaxRetries ? (
-            <div
-              style={{
-                background: "rgba(224,82,82,0.08)",
-                border: "1px solid rgba(224,82,82,0.2)",
-                borderRadius: 10,
-                padding: "12px 16px",
-                fontSize: 13,
-                color: "#E8E8E8",
-                lineHeight: 1.6,
-              }}
-            >
-              Maximum retries reached. Please contact support at{" "}
-              <a
-                href="mailto:stancardcreativeagency@gmail.com"
-                style={{ color: "#D4AF37", fontWeight: 700 }}
-              >
-                stancardcreativeagency@gmail.com
-              </a>
-            </div>
-          ) : (
-            <>
-              <button
-                type="button"
-                data-ocid="pay.receive.retry_button"
-                onClick={() => {
-                  setVaError("");
-                  setVirtualAccount(null);
-                  setVaRetryCount((c) => c + 1);
-                  vaLoadedForCurrencyRef.current = null;
-                  void loadVirtualAccount();
-                }}
-                style={{
-                  background:
-                    "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)",
-                  border: "none",
-                  borderRadius: 10,
-                  padding: "10px 24px",
-                  color: "rgba(0,0,0,0.85)",
-                  fontSize: 14,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 7,
-                  transition: "opacity 0.2s ease",
-                  boxShadow: "0 4px 16px rgba(212,175,55,0.3)",
-                }}
-              >
-                <RefreshCw size={15} />
-                Try Again
-              </button>
-              <div style={{ fontSize: 11, color: "#5A5A5A" }}>
-                Attempt {vaRetryCount + 1} of {MAX_RETRIES}
-              </div>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "#4A4A4A",
-                  lineHeight: 1.5,
-                  maxWidth: 260,
-                }}
-              >
-                If this persists after multiple retries, please contact support
-                at{" "}
-                <a
-                  href="mailto:stancardcreativeagency@gmail.com"
-                  style={{ color: "#D4AF37" }}
-                >
-                  stancardcreativeagency@gmail.com
-                </a>
-              </div>
-            </>
-          )}
-        </div>
-      );
-    }
-
-    // Expired state
-    if (vaExpired && virtualAccount && !vaLoading) {
-      return (
-        <div
-          data-ocid="pay.receive.expired_state"
-          style={{
-            background: "#1A1A1A",
-            border: "1px solid #2A2A2A",
-            borderRadius: 12,
-            padding: 16,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: "#7A7A7A",
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              marginBottom: 6,
-            }}
-          >
-            Bank Name
-          </div>
-          <div
-            style={{
-              fontSize: 14,
-              fontWeight: 600,
-              color: "#4A4A4A",
-              marginBottom: 12,
-              textDecoration: "line-through",
-            }}
-          >
-            {virtualAccount.bankName}
-          </div>
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: "#7A7A7A",
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              marginBottom: 6,
-            }}
-          >
-            Account Number
-          </div>
-          <div
-            style={{
-              fontSize: 20,
-              fontWeight: 700,
-              color: "#4A4A4A",
-              letterSpacing: "0.08em",
-              fontFamily: "monospace",
-              textDecoration: "line-through",
-              marginBottom: 16,
-            }}
-          >
-            {virtualAccount.accountNumber}
-          </div>
-          <div
-            style={{
-              background: "rgba(212,175,55,0.06)",
-              border: "1px solid rgba(212,175,55,0.2)",
-              borderRadius: 10,
-              padding: "10px 14px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 10,
-            }}
-          >
-            <span
-              style={{
-                fontSize: 13,
-                color: "rgba(212,175,55,0.8)",
-                fontWeight: 600,
-              }}
-            >
-              Account expired — tap to refresh
-            </span>
-            <button
-              type="button"
-              data-ocid="pay.receive.refresh_button"
-              onClick={() => void handleRefresh()}
-              style={{
-                background: "rgba(212,175,55,0.12)",
-                border: "1px solid rgba(212,175,55,0.35)",
-                borderRadius: 8,
-                padding: "6px 14px",
-                color: "#D4AF37",
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                flexShrink: 0,
-                transition: "background 0.2s ease",
-              }}
-            >
-              <RefreshCw size={13} />
-              Refresh
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    // Success state — real virtual account
-    if (virtualAccount && !vaExpired && !vaLoading && !vaError) {
-      return (
-        <div
-          data-ocid="pay.receive.success_state"
-          style={{ display: "flex", flexDirection: "column", gap: 10 }}
-        >
-          <div
-            style={{
-              background: "#1A1A1A",
-              border: "1px solid #2A2A2A",
-              borderRadius: 12,
-              padding: 16,
-            }}
-          >
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                color: "#7A7A7A",
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                marginBottom: 6,
-              }}
-            >
-              Bank Name
-            </div>
-            <div
-              style={{
-                fontSize: 15,
-                fontWeight: 600,
-                color: "#E8E8E8",
-                marginBottom: 14,
-              }}
-            >
-              {virtualAccount.bankName}
-            </div>
-
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                color: "#7A7A7A",
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                marginBottom: 6,
-              }}
-            >
-              Account Name
-            </div>
-            <div
-              style={{
-                fontSize: 14,
-                fontWeight: 600,
-                color: "#E8E8E8",
-                marginBottom: 14,
-              }}
-            >
-              {virtualAccount.accountName}
-            </div>
-
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                color: "#7A7A7A",
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                marginBottom: 6,
-              }}
-            >
-              Account Number
-            </div>
-            <div className="flex items-center justify-between">
-              <span
-                style={{
-                  fontSize: 22,
-                  fontWeight: 700,
-                  color: "#D4AF37",
-                  letterSpacing: "0.08em",
-                  fontFamily: "monospace",
-                }}
-              >
-                {virtualAccount.accountNumber}
-              </span>
-              <button
-                type="button"
-                data-ocid="pay.receive.copy.button"
-                onClick={handleCopyVA}
-                style={{
-                  background: copied ? "rgba(212,175,55,0.15)" : "#0F0F0F",
-                  border: "1px solid #2A2A2A",
-                  borderRadius: 8,
-                  padding: "6px 12px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  cursor: "pointer",
-                  color: copied ? "#D4AF37" : "#7A7A7A",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  transition: "all 0.2s ease",
-                }}
-              >
-                {copied ? <Check size={14} /> : <Copy size={14} />}
-                {copied ? "Copied!" : "Copy"}
-              </button>
-            </div>
-          </div>
-
-          {/* BVN upgrade note */}
-          <div
-            style={{
-              fontSize: 12,
-              color: "rgba(212,175,55,0.7)",
-              background: "rgba(212,175,55,0.06)",
-              border: "1px solid rgba(212,175,55,0.15)",
-              borderRadius: 8,
-              padding: "8px 12px",
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 6,
-            }}
-          >
-            <span style={{ flexShrink: 0, marginTop: 1 }}>ℹ️</span>
-            <span>
-              Upgrade to a permanent account by verifying your BVN in Settings.
-            </span>
-          </div>
-        </div>
-      );
-    }
-
-    return null;
-  }
+  const goldGradient =
+    "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)";
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent
         data-ocid="pay.receive.modal"
         style={{
           background: "#0F0F0F",
           border: "1px solid #2A2A2A",
           borderRadius: 16,
-          maxWidth: 380,
+          maxWidth: 400,
         }}
       >
         <DialogHeader>
           <DialogTitle
             style={{
-              background:
-                "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)",
+              background: goldGradient,
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
               backgroundClip: "text",
@@ -2505,21 +2083,51 @@ function ReceiveModal({
 
         <div
           className="flex flex-col gap-4 mt-2"
-          style={{ maxHeight: "70vh", overflowY: "auto" }}
+          style={{ maxHeight: "72vh", overflowY: "auto" }}
         >
-          {currency === "NGN" ? (
-            <>
-              {renderNGNSection()}
-              {/* QR code section below virtual account — always shown when logged in */}
-              {isLoggedIn && principalId && (
-                <QRReceiveSection principalId={principalId} />
-              )}
-            </>
-          ) : /* Non-NGN: QR code as primary receive method */
-          isLoggedIn && principalId ? (
-            <QRReceiveSection principalId={principalId} />
-          ) : !isLoggedIn ? (
+          {/* Currency selector */}
+          <div>
+            <Label
+              style={{
+                color: "#7A7A7A",
+                fontSize: 12,
+                fontWeight: 600,
+                letterSpacing: "0.06em",
+              }}
+            >
+              CURRENCY
+            </Label>
+            <Select
+              value={currency}
+              onValueChange={(v) => setCurrency(v as Currency)}
+            >
+              <SelectTrigger
+                style={{
+                  background: "#1A1A1A",
+                  border: "1px solid #2A2A2A",
+                  color: "#E8E8E8",
+                  borderRadius: 10,
+                  marginTop: 6,
+                }}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent
+                style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
+              >
+                {CURRENCIES.map((c) => (
+                  <SelectItem key={c} value={c} style={{ color: "#E8E8E8" }}>
+                    {c} — {CURRENCY_SYMBOL[c]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Main receive section — QR only for all currencies */}
+          {!isLoggedIn ? (
             <div
+              data-ocid="pay.receive.signin_state"
               style={{
                 background: "#1A1A1A",
                 border: "1px solid #2A2A2A",
@@ -2550,15 +2158,35 @@ function ReceiveModal({
                 Sign in to receive payments
               </div>
               <div style={{ fontSize: 12, color: "#5A5A5A", maxWidth: 240 }}>
-                Sign in to generate your QR code for receiving{" "}
+                Sign in on the Profile tab to get your QR code for receiving{" "}
                 <span style={{ color: "#D4AF37", fontWeight: 700 }}>
                   {currency}
                 </span>
                 .
               </div>
             </div>
+          ) : principalId ? (
+            <>
+              <QRReceiveSection principalId={principalId} currency={currency} />
+              {/* NGN note about bank transfers */}
+              {currency === "NGN" && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "rgba(212,175,55,0.7)",
+                    background: "rgba(212,175,55,0.06)",
+                    border: "1px solid rgba(212,175,55,0.15)",
+                    borderRadius: 8,
+                    padding: "10px 14px",
+                    lineHeight: 1.6,
+                  }}
+                >
+                  ℹ️ For bank transfers, ask the sender to use your principal ID
+                  via the Stancard Pay app.
+                </div>
+              )}
+            </>
           ) : (
-            /* Logged in but no principal yet — show note */
             <div
               style={{
                 background: "#1A1A1A",
@@ -2571,179 +2199,8 @@ function ReceiveModal({
                 lineHeight: 1.6,
               }}
             >
-              Ask the sender to use your Stancard ID for a direct transfer.
+              Loading your identity... Please wait a moment.
             </div>
-          )}
-
-          {/* Currency selector — shown for all currencies */}
-          <div>
-            <Label
-              style={{
-                color: "#7A7A7A",
-                fontSize: 12,
-                fontWeight: 600,
-                letterSpacing: "0.06em",
-              }}
-            >
-              CURRENCY
-            </Label>
-            <Select
-              value={currency}
-              onValueChange={(v) => {
-                setCurrency(v as Currency);
-                // Reset VA state when switching to/from NGN
-                setVaError("");
-                setVaExpired(false);
-                if (v !== "NGN") {
-                  // keep virtualAccount cached for NGN
-                }
-              }}
-            >
-              <SelectTrigger
-                style={{
-                  background: "#1A1A1A",
-                  border: "1px solid #2A2A2A",
-                  color: "#E8E8E8",
-                  borderRadius: 10,
-                  marginTop: 6,
-                }}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent
-                style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
-              >
-                {CURRENCIES.map((c) => (
-                  <SelectItem key={c} value={c} style={{ color: "#E8E8E8" }}>
-                    {c} — {CURRENCY_SYMBOL[c]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Amount field + Confirm Receipt — ISSUE 3: only shown for NGN when logged in */}
-          {/* Non-NGN currencies show only a Close button (the coming-soon message is above) */}
-          {currency === "NGN" && isLoggedIn && (
-            <>
-              <div>
-                <Label
-                  style={{
-                    color: "#7A7A7A",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    letterSpacing: "0.06em",
-                  }}
-                >
-                  AMOUNT RECEIVED
-                </Label>
-                <div className="relative mt-1.5">
-                  <span
-                    style={{
-                      position: "absolute",
-                      left: 12,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      color: "#D4AF37",
-                      fontWeight: 700,
-                      fontSize: 16,
-                      pointerEvents: "none",
-                    }}
-                  >
-                    {CURRENCY_SYMBOL[currency]}
-                  </span>
-                  <Input
-                    data-ocid="pay.receive.amount.input"
-                    type="number"
-                    placeholder="0.00"
-                    value={amount}
-                    onChange={(e) => {
-                      setAmount(e.target.value);
-                      setError("");
-                    }}
-                    style={{
-                      background: "#1A1A1A",
-                      border: "1px solid #2A2A2A",
-                      color: "#E8E8E8",
-                      borderRadius: 10,
-                      paddingLeft: 32,
-                      fontSize: 16,
-                      fontWeight: 600,
-                    }}
-                  />
-                </div>
-                {error && (
-                  <p
-                    data-ocid="pay.receive.error_state"
-                    style={{ color: "#E05252", fontSize: 12, marginTop: 4 }}
-                  >
-                    {error}
-                  </p>
-                )}
-              </div>
-
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  background: "rgba(212,175,55,0.08)",
-                  border: "1px solid rgba(212,175,55,0.2)",
-                  borderRadius: 10,
-                  padding: "10px 14px",
-                }}
-              >
-                <CreditCard size={16} color="#D4AF37" />
-                <span
-                  style={{ fontSize: 13, color: "#D4AF37", fontWeight: 600 }}
-                >
-                  {currency} wallet
-                </span>
-              </div>
-
-              <Button
-                data-ocid="pay.receive.confirm_button"
-                onClick={() => void handleConfirm()}
-                disabled={submitting}
-                className="w-full"
-                style={{
-                  background:
-                    "linear-gradient(135deg, #F2D37A 0%, #D4AF37 55%, #B8871A 100%)",
-                  color: "rgba(0,0,0,0.85)",
-                  fontWeight: 700,
-                  fontSize: 15,
-                  borderRadius: 12,
-                  padding: "12px 0",
-                  height: "auto",
-                  boxShadow: "0 4px 20px rgba(212,175,55,0.3)",
-                  border: "none",
-                  opacity: submitting ? 0.7 : 1,
-                }}
-              >
-                {submitting ? "Logging..." : "Confirm Receipt"}
-              </Button>
-            </>
-          )}
-
-          {/* ISSUE 3: Close button for non-NGN currencies only when not showing QR */}
-          {currency !== "NGN" && !isLoggedIn && (
-            <Button
-              data-ocid="pay.receive.close_button"
-              onClick={onClose}
-              className="w-full"
-              style={{
-                background: "transparent",
-                color: "#D4AF37",
-                fontWeight: 700,
-                fontSize: 15,
-                borderRadius: 12,
-                padding: "12px 0",
-                height: "auto",
-                border: "1px solid rgba(212,175,55,0.4)",
-              }}
-            >
-              Close
-            </Button>
           )}
         </div>
       </DialogContent>

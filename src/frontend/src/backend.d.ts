@@ -279,6 +279,7 @@ export interface backendInterface {
     getAcceptedDeliveries(): Promise<Array<DeliveryRequest>>;
     getAcceptedDeliveriesWithTracking(): Promise<Array<AcceptedDeliveryWithTracking>>;
     getAdminList(): Promise<Array<Principal>>;
+    getAdminStatus(): Promise<boolean>;
     getAlerts(): Promise<Array<Alert>>;
     getAllRiderVerifications(): Promise<Array<RiderVerificationWithStatus>>;
     getAllRoutes(): Promise<Array<RiderRoute>>;
@@ -289,6 +290,10 @@ export interface backendInterface {
     getMarketData(): Promise<MarketData>;
     getMatchedRiders(destinationCity: string, destinationCountry: string): Promise<Array<RiderRoute>>;
     getNewsData(): Promise<NewsData>;
+    /**
+     * / Retrieve the caller's stored push notification subscription JSON, if any.
+     */
+    getNotificationSubscription(): Promise<string | null>;
     getRiderRoutes(): Promise<Array<RiderRoute>>;
     getRiderVerification(): Promise<RiderVerification | null>;
     getSavingsGoals(): Promise<Array<SavingsGoal>>;
@@ -315,6 +320,11 @@ export interface backendInterface {
     rejectSenderVerification(senderPrincipal: Principal, reason: string): Promise<AdminResult>;
     removeAdmin(adminToRemove: Principal): Promise<AdminResult>;
     respondToRequest(requestId: string, accept: boolean): Promise<MoveResult>;
+    /**
+     * / Store the caller's Web Push subscription JSON (VAPID) so the service
+     * / worker can retrieve it and send notifications for triggered alerts.
+     */
+    saveNotificationSubscription(subscription: string): Promise<void>;
     saveUserProfile(displayName: string, preferredCurrency: string, language: string, hideBalance: boolean, hideTransactions: boolean): Promise<UserProfile>;
     sendDeliveryRequest(packageId: string, routeId: string, riderPrincipalText: string): Promise<MoveResult>;
     sendMoney(recipientPrincipal: string, amount: number, currency: string, dateStr: string): Promise<SendMoneyResult>;

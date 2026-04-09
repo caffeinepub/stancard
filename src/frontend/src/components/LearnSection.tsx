@@ -1,7 +1,8 @@
 import {
   BookOpen,
+  ChevronDown,
+  ChevronUp,
   Clock,
-  ExternalLink,
   GraduationCap,
   RefreshCw,
   Search,
@@ -30,8 +31,52 @@ interface WikiSuggestion {
 
 const SKELETON_IDS = ["sk-l1", "sk-l2", "sk-l3"];
 
-const RSS_URL =
-  "https://api.rss2json.com/v1/api.json?rss_url=https%3A%2F%2Fwww.investopedia.com%2Ffeedbuilder%2Ffeed-builder.aspx%3Fid%3DArticleRSS";
+// Primary: rss2json.com with a well-known working Investopedia feed URL
+const RSS_PRIMARY =
+  "https://api.rss2json.com/v1/api.json?rss_url=https%3A%2F%2Fwww.investopedia.com%2Ffeeds%2Frss.aspx&count=10";
+
+// Fallback: allorigins CORS proxy that returns raw XML for DOMParser
+const RSS_FALLBACK =
+  "https://api.allorigins.win/get?url=https%3A%2F%2Fwww.investopedia.com%2Ffeeds%2Frss.aspx";
+
+const FALLBACK_ARTICLES: RssArticle[] = [
+  {
+    title: "What Is Compound Interest?",
+    description:
+      "Compound interest is the addition of interest to the principal sum of a loan or deposit, or in other words, interest on principal plus interest.",
+    pubDate: "",
+    link: "https://www.investopedia.com/terms/c/compoundinterest.asp",
+    thumbnail: "",
+    author: "Investopedia",
+  },
+  {
+    title: "Understanding ETFs",
+    description:
+      "An exchange-traded fund (ETF) is a type of pooled investment security that operates much like a mutual fund.",
+    pubDate: "",
+    link: "https://www.investopedia.com/terms/e/etf.asp",
+    thumbnail: "",
+    author: "Investopedia",
+  },
+  {
+    title: "How the Stock Market Works",
+    description:
+      "The stock market allows buyers and sellers of securities to meet, interact, and transact. Learn the fundamentals.",
+    pubDate: "",
+    link: "https://www.investopedia.com/articles/investing/082614/how-stock-market-works.asp",
+    thumbnail: "",
+    author: "Investopedia",
+  },
+  {
+    title: "Forex Trading Basics",
+    description:
+      "Forex (FX) is the market where currencies are traded. Learn the basics of foreign exchange trading.",
+    pubDate: "",
+    link: "https://www.investopedia.com/terms/f/forex.asp",
+    thumbnail: "",
+    author: "Investopedia",
+  },
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -71,6 +116,72 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, "").trim();
 }
 
+/** Parse raw RSS XML string into RssArticle array */
+function parseRssXml(xml: string): RssArticle[] {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xml, "text/xml");
+    const items = Array.from(doc.querySelectorAll("item")).slice(0, 10);
+    return items.map((item) => {
+      const getText = (tag: string) =>
+        item.querySelector(tag)?.textContent?.trim() ?? "";
+      const enclosure = item.querySelector("enclosure");
+      const mediaThumbnail = item.querySelector("media\\:thumbnail, thumbnail");
+      const thumbnail =
+        enclosure?.getAttribute("url") ??
+        mediaThumbnail?.getAttribute("url") ??
+        "";
+      return {
+        title: getText("title"),
+        description: getText("description"),
+        pubDate: getText("pubDate"),
+        link: getText("link"),
+        thumbnail,
+        author: getText("author") || getText("dc\\:creator") || "Investopedia",
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+// ─── Two-stage RSS fetch ──────────────────────────────────────────────────────
+
+async function fetchRssArticles(): Promise<RssArticle[]> {
+  // Stage 1: rss2json.com — returns JSON directly
+  try {
+    const res = await withTimeout(fetch(RSS_PRIMARY), 10000);
+    if (res.ok) {
+      const data = (await res.json()) as {
+        status?: string;
+        items?: RssArticle[];
+      };
+      const items = (data.items ?? []).slice(0, 6).filter((a) => !!a.title);
+      if (items.length >= 2) return items;
+    }
+  } catch {
+    // stage 1 failed — continue to stage 2
+  }
+
+  // Stage 2: allorigins.win — returns {contents: "<raw xml>"}
+  try {
+    const res = await withTimeout(fetch(RSS_FALLBACK), 10000);
+    if (res.ok) {
+      const data = (await res.json()) as { contents?: string };
+      const xml = data.contents ?? "";
+      const items = parseRssXml(xml)
+        .slice(0, 6)
+        .filter((a) => !!a.title);
+      if (items.length >= 2) return items;
+    }
+  } catch {
+    // stage 2 failed — fall through to hardcoded stubs
+  }
+
+  // Stage 3: hardcoded fallback stubs so the section is never empty
+  return FALLBACK_ARTICLES;
+}
+
 // ─── Article Preview Modal ────────────────────────────────────────────────────
 
 function ArticleModal({
@@ -81,7 +192,6 @@ function ArticleModal({
   onClose: () => void;
 }) {
   const [imgErr, setImgErr] = useState(false);
-  const hasUrl = !!article?.link && article.link !== "#";
 
   return (
     <AnimatePresence>
@@ -186,24 +296,26 @@ function ArticleModal({
                 {article.title}
               </p>
 
-              <p
-                className="mt-1.5"
-                style={{ fontSize: "11px", color: "#6C6C6C" }}
-              >
-                <Clock
-                  size={9}
-                  style={{
-                    display: "inline",
-                    marginRight: "4px",
-                    verticalAlign: "middle",
-                  }}
-                />
-                {timeAgo(article.pubDate)}
-              </p>
+              {article.pubDate && (
+                <p
+                  className="mt-1.5"
+                  style={{ fontSize: "11px", color: "#6C6C6C" }}
+                >
+                  <Clock
+                    size={9}
+                    style={{
+                      display: "inline",
+                      marginRight: "4px",
+                      verticalAlign: "middle",
+                    }}
+                  />
+                  {timeAgo(article.pubDate)}
+                </p>
+              )}
 
               {article.description && (
                 <p
-                  className="mt-2.5 line-clamp-6"
+                  className="mt-2.5"
                   style={{
                     fontSize: "13px",
                     color: "#9A9A9A",
@@ -213,29 +325,6 @@ function ArticleModal({
                   {stripHtml(article.description)}
                 </p>
               )}
-
-              <button
-                type="button"
-                onClick={() =>
-                  hasUrl &&
-                  window.open(article.link, "_blank", "noopener,noreferrer")
-                }
-                disabled={!hasUrl}
-                className="w-full mt-5 transition-opacity active:opacity-80"
-                style={{
-                  background: hasUrl ? "#D4AF37" : "transparent",
-                  color: hasUrl ? "#111111" : "#5A5A5A",
-                  fontWeight: 700,
-                  borderRadius: "12px",
-                  padding: "14px",
-                  fontSize: "14px",
-                  border: hasUrl ? "none" : "1px solid #3A3A3A",
-                  cursor: hasUrl ? "pointer" : "not-allowed",
-                }}
-                data-ocid="learn.read_article.button"
-              >
-                {hasUrl ? "Read Full Article" : "Article link not available"}
-              </button>
             </div>
           </motion.div>
         </motion.div>
@@ -349,13 +438,15 @@ function ArticleCard({
           >
             Investopedia
           </span>
-          <span
-            className="flex items-center gap-1 text-[10px]"
-            style={{ color: "#6C6C6C" }}
-          >
-            <Clock size={9} />
-            {timeAgo(article.pubDate)}
-          </span>
+          {article.pubDate && (
+            <span
+              className="flex items-center gap-1 text-[10px]"
+              style={{ color: "#6C6C6C" }}
+            >
+              <Clock size={9} />
+              {timeAgo(article.pubDate)}
+            </span>
+          )}
         </div>
 
         <p
@@ -380,13 +471,17 @@ function ArticleCard({
 
 // ─── Wikipedia Glossary ───────────────────────────────────────────────────────
 
+const DEFINITION_PREVIEW_LIMIT = 500;
+
 function WikiGlossary() {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<WikiSuggestion[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [definition, setDefinition] = useState<{
     term: string;
-    text: string;
+    full: string;
+    preview: string;
+    expanded: boolean;
   } | null>(null);
   const [defLoading, setDefLoading] = useState(false);
   const [defError, setDefError] = useState(false);
@@ -429,21 +524,50 @@ function WikiGlossary() {
     setDefError(false);
     setDefinition(null);
     try {
-      const url = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(term)}&prop=extracts&exintro=true&explaintext=true&format=json&origin=*`;
+      // Use Wikipedia REST summary API — returns full 'extract' paragraph
+      const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(term)}`;
       const res = await withTimeout(fetch(url), 8000);
+      if (!res.ok) throw new Error("not_found");
       const data = (await res.json()) as {
-        query: { pages: Record<string, { extract?: string }> };
+        title?: string;
+        extract?: string;
+        displaytitle?: string;
       };
-      const pages = data.query?.pages ?? {};
-      const page = Object.values(pages)[0];
-      const text = page?.extract?.trim();
-      if (!text || text.length < 10) {
-        setDefError(true);
-      } else {
-        // Truncate to ~500 chars for display
+      const fullText = data.extract?.trim() ?? "";
+      if (!fullText || fullText.length < 10) {
+        // Fallback: try the action API for broader coverage
+        const fallbackUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(term)}&prop=extracts&exintro=true&explaintext=true&redirects=1&format=json&origin=*`;
+        const res2 = await withTimeout(fetch(fallbackUrl), 8000);
+        const data2 = (await res2.json()) as {
+          query: { pages: Record<string, { extract?: string }> };
+        };
+        const pages = data2.query?.pages ?? {};
+        const page = Object.values(pages)[0];
+        const text2 = page?.extract?.trim() ?? "";
+        if (!text2 || text2.length < 10) {
+          setDefError(true);
+          return;
+        }
+        const displayTerm = data.displaytitle ?? data.title ?? term;
         setDefinition({
-          term,
-          text: text.slice(0, 500) + (text.length > 500 ? "…" : ""),
+          term: displayTerm,
+          full: text2,
+          preview:
+            text2.length > DEFINITION_PREVIEW_LIMIT
+              ? text2.slice(0, DEFINITION_PREVIEW_LIMIT)
+              : text2,
+          expanded: text2.length <= DEFINITION_PREVIEW_LIMIT,
+        });
+      } else {
+        const displayTerm = data.displaytitle ?? data.title ?? term;
+        setDefinition({
+          term: displayTerm,
+          full: fullText,
+          preview:
+            fullText.length > DEFINITION_PREVIEW_LIMIT
+              ? fullText.slice(0, DEFINITION_PREVIEW_LIMIT)
+              : fullText,
+          expanded: fullText.length <= DEFINITION_PREVIEW_LIMIT,
         });
       }
     } catch {
@@ -462,9 +586,14 @@ function WikiGlossary() {
     inputRef.current?.focus();
   };
 
+  const toggleExpand = () => {
+    if (!definition) return;
+    setDefinition((d) => (d ? { ...d, expanded: !d.expanded } : d));
+  };
+
   return (
     <div>
-      {/* Search input */}
+      {/* Search input — font-size 16px prevents iOS/Android zoom on focus */}
       <div className="relative">
         <div
           className="flex items-center gap-2 rounded-xl px-3 py-2.5"
@@ -478,8 +607,12 @@ function WikiGlossary() {
             onChange={(e) => setQuery(e.target.value)}
             onFocus={() => suggestions.length > 0 && setShowDropdown(true)}
             placeholder="Search financial terms…"
-            className="flex-1 bg-transparent outline-none text-sm"
-            style={{ color: "#E8E8E8" }}
+            className="flex-1 bg-transparent outline-none"
+            style={{
+              color: "#E8E8E8",
+              fontSize: "16px", // prevents iOS/Android zoom on focus
+              lineHeight: "1.4",
+            }}
             data-ocid="learn.glossary_input"
           />
           {query && (
@@ -513,7 +646,7 @@ function WikiGlossary() {
                   style={{ color: "#6C6C6C" }}
                   data-ocid="learn.glossary_no_results"
                 >
-                  No locations found
+                  No terms found
                 </p>
               ) : (
                 suggestions.map((s) => (
@@ -545,7 +678,7 @@ function WikiGlossary() {
         </AnimatePresence>
       </div>
 
-      {/* Definition card */}
+      {/* Definition loading skeleton */}
       {defLoading && (
         <div
           className="mt-3 rounded-xl p-4 animate-pulse"
@@ -570,6 +703,7 @@ function WikiGlossary() {
         </div>
       )}
 
+      {/* Definition error */}
       {!defLoading && defError && (
         <div
           className="mt-3 rounded-xl p-4"
@@ -577,11 +711,12 @@ function WikiGlossary() {
           data-ocid="learn.glossary_error"
         >
           <p className="text-xs" style={{ color: "#6C6C6C" }}>
-            No definition found for this term.
+            No definition found for this term. Try a different search.
           </p>
         </div>
       )}
 
+      {/* Definition result — full text with expand/collapse */}
       {!defLoading && definition && (
         <motion.div
           className="mt-3 rounded-xl p-4"
@@ -598,19 +733,29 @@ function WikiGlossary() {
             className="text-xs leading-relaxed"
             style={{ color: "#9A9A9A", lineHeight: "1.6" }}
           >
-            {definition.text}
+            {definition.expanded ? definition.full : `${definition.preview}…`}
           </p>
-          <a
-            href={`https://en.wikipedia.org/wiki/${encodeURIComponent(definition.term)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 mt-3 text-xs font-semibold transition-opacity hover:opacity-80"
-            style={{ color: "#D4AF37" }}
-            data-ocid="learn.glossary_wiki_link"
-          >
-            <ExternalLink size={11} />
-            View on Wikipedia
-          </a>
+
+          {/* Show "Read more" / "Show less" only when text exceeds limit */}
+          {definition.full.length > DEFINITION_PREVIEW_LIMIT && (
+            <button
+              type="button"
+              onClick={toggleExpand}
+              className="mt-2 flex items-center gap-1 text-xs font-semibold transition-opacity active:opacity-60"
+              style={{ color: "#D4AF37" }}
+              data-ocid="learn.glossary_expand"
+            >
+              {definition.expanded ? (
+                <>
+                  Show less <ChevronUp size={11} />
+                </>
+              ) : (
+                <>
+                  Read more <ChevronDown size={11} />
+                </>
+              )}
+            </button>
+          )}
         </motion.div>
       )}
     </div>
@@ -635,17 +780,20 @@ export function LearnSection() {
 
   const fetchArticles = useCallback(async () => {
     setIsError(false);
+    setIsLoading(true);
     try {
-      const res = await withTimeout(fetch(RSS_URL), 8000);
-      const data = (await res.json()) as { items?: RssArticle[] };
-      const items = (data.items ?? []).slice(0, 6);
-      if (items.length === 0) throw new Error("empty");
+      const items = await fetchRssArticles();
       articlesRef.current = items;
       setArticles(items);
       setLastUpdated(new Date());
       setIsError(false);
     } catch {
-      if (articlesRef.current.length === 0) setIsError(true);
+      if (articlesRef.current.length === 0) {
+        // Even if everything fails, show the hardcoded stubs
+        articlesRef.current = FALLBACK_ARTICLES;
+        setArticles(FALLBACK_ARTICLES);
+        setIsError(false);
+      }
     } finally {
       setIsLoading(false);
     }

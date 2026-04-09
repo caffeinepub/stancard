@@ -199,14 +199,6 @@ export function ArticlePreviewModal({
 }: ArticlePreviewModalProps) {
   const [imgError, setImgError] = useState(false);
   const showFallback = imgError || !article?.urlToImage;
-  const hasValidUrl = article?.url && article.url !== "#";
-
-  function handleReadFullArticle() {
-    if (article?.url) {
-      window.open(article.url, "_blank", "noopener,noreferrer");
-      onClose();
-    }
-  }
 
   return (
     <AnimatePresence>
@@ -222,7 +214,7 @@ export function ArticlePreviewModal({
           onClick={onClose}
           data-ocid="news.modal"
         >
-          {/* Modal panel — stop propagation so clicks inside don't close */}
+          {/* Modal panel */}
           <motion.div
             onClick={(e) => e.stopPropagation()}
             className="w-full overflow-y-auto"
@@ -330,10 +322,10 @@ export function ArticlePreviewModal({
                 {timeAgo(article.publishedAt)}
               </p>
 
-              {/* Description */}
+              {/* Description — show full excerpt in-app, no external link */}
               {article.description && (
                 <p
-                  className="mt-2.5 line-clamp-4"
+                  className="mt-2.5"
                   style={{
                     fontSize: "13px",
                     color: "#9A9A9A",
@@ -343,31 +335,6 @@ export function ArticlePreviewModal({
                   {article.description}
                 </p>
               )}
-
-              {/* Read Full Article button — ISSUE 5: always render, disable when no valid URL */}
-              <button
-                type="button"
-                onClick={hasValidUrl ? handleReadFullArticle : undefined}
-                disabled={!hasValidUrl}
-                className="w-full mt-5 transition-opacity active:opacity-80"
-                style={{
-                  background: hasValidUrl ? "#D4AF37" : "transparent",
-                  color: hasValidUrl ? "#111111" : "#5A5A5A",
-                  fontWeight: 700,
-                  borderRadius: "12px",
-                  padding: "14px",
-                  fontSize: "14px",
-                  letterSpacing: "0.02em",
-                  border: hasValidUrl ? "none" : "1px solid #3A3A3A",
-                  cursor: hasValidUrl ? "pointer" : "not-allowed",
-                  opacity: hasValidUrl ? 1 : 0.6,
-                }}
-                data-ocid="news.read_article.button"
-              >
-                {hasValidUrl
-                  ? "Read Full Article"
-                  : "Article link not available"}
-              </button>
             </div>
           </motion.div>
         </motion.div>

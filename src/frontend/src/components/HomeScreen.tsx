@@ -1,88 +1,17 @@
-import {
-  ArrowDownRight,
-  ArrowRight,
-  ArrowUpRight,
-  RefreshCw,
-} from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useActor } from "../hooks/useActor";
-// Issue 22+23: use shared fxRates to eliminate duplication with DonutChart
+import { ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { USD_RATES, getLiveRates } from "../utils/fxRates";
 import { DonutChart } from "./DonutChart";
-import type { NewsArticle } from "./NewsSection";
-import {
-  ArticlePreviewModal,
-  NewsSection,
-  getArticleCategory,
-} from "./NewsSection";
+import { LearnSection } from "./LearnSection";
 
-// ─── Local actor interface for news ──────────────────────────────────────────
-interface NewsActor {
-  getNewsData: () => Promise<{
-    success: boolean;
-    articles: NewsArticle[];
-    lastUpdated: bigint;
-  }>;
-}
-
-// ─── Mock fallback news ─────────────────────────────────────────────────────────────────────────────────────
-
-const MOCK_ARTICLES: NewsArticle[] = [
-  {
-    title: "Global Markets Rally as Central Banks Signal Rate Cuts",
-    source: "Reuters",
-    url: "#",
-    urlToImage: "",
-    publishedAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-    description:
-      "Major indices surged across Asia, Europe, and the US after coordinated signals from the Fed, ECB, and Bank of England.",
-  },
-  {
-    title: "Africa's Tech Sector Sees Record Investment in Q1 2026",
-    source: "Bloomberg",
-    url: "#",
-    urlToImage: "",
-    publishedAt: new Date(Date.now() - 1000 * 60 * 90).toISOString(),
-    description:
-      "Venture capital flows into African startups hit an all-time high, driven by fintech and clean energy sectors.",
-  },
-  {
-    title: "Bitcoin Surpasses $70,000 on ETF Inflow Surge",
-    source: "CoinDesk",
-    url: "#",
-    urlToImage: "",
-    publishedAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-    description:
-      "Spot Bitcoin ETFs recorded their highest single-day inflow of $1.4 billion, pushing BTC to new quarterly highs.",
-  },
-  {
-    title: "Asia Pacific Trade Pact Boosts Regional Currency Stability",
-    source: "Financial Times",
-    url: "#",
-    urlToImage: "",
-    publishedAt: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
-    description:
-      "The expanded RCEP agreement is showing measurable effects on currency volatility across the Asia Pacific region.",
-  },
-  {
-    title: "Oil Prices Stabilise as OPEC+ Maintains Output Targets",
-    source: "CNBC",
-    url: "#",
-    urlToImage: "",
-    publishedAt: new Date(Date.now() - 1000 * 60 * 240).toISOString(),
-    description:
-      "Brent crude held steady near $82 per barrel after the OPEC+ group confirmed no changes to production quotas.",
-  },
-];
-
-// ─── Currency to USD conversion (uses live rates when available, falls back to static) ──────────────
+// ─── Currency to USD conversion ───────────────────────────────────────────────
 function toUSD(amount: number, currency: string): number {
   const rates = getLiveRates();
   const rate = rates[currency] ?? USD_RATES[currency] ?? 1;
   return amount * rate;
 }
 
-// ─── Actor type (minimal subset needed here) ──────────────────────────────────────────────────────
+// ─── Actor types ──────────────────────────────────────────────────────────────
 interface WalletTransaction {
   id: string;
   txType: string;
@@ -92,6 +21,7 @@ interface WalletTransaction {
   desc: string;
   status: string;
 }
+
 interface WalletActor {
   getWalletBalances: () => Promise<{ currency: string; amount: number }[]>;
   getWalletTransactions?: () => Promise<WalletTransaction[]>;
@@ -105,36 +35,7 @@ const CURRENCY_SYMBOL_MAP: Record<string, string> = {
   CNY: "¥",
 };
 
-// ─── Helper ───────────────────────────────────────────────────────────────────────────────────────────
-function timeAgo(isoString: string): string {
-  if (!isoString) return "";
-  try {
-    const diffMs = Date.now() - new Date(isoString).getTime();
-    const diffSec = Math.floor(diffMs / 1000);
-    if (diffSec < 60) return "just now";
-    const diffMin = Math.floor(diffSec / 60);
-    if (diffMin < 60) return `${diffMin}m ago`;
-    const diffHr = Math.floor(diffMin / 60);
-    if (diffHr < 24) return `${diffHr}h ago`;
-    const diffDays = Math.floor(diffHr / 24);
-    return `${diffDays}d ago`;
-  } catch {
-    return "";
-  }
-}
-
-// ─── "Last updated X minutes ago" string from a Date ─────────────────────────
-function updatedAgoLabel(date: Date | null): string {
-  if (!date) return "";
-  const diffMs = Date.now() - date.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-  if (diffSec < 60) return "just now";
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  return `${diffHr}h ago`;
-}
-
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatUSD(value: number): string {
   return value.toLocaleString("en-US", {
     minimumFractionDigits: 2,
@@ -142,58 +43,7 @@ function formatUSD(value: number): string {
   });
 }
 
-// ─── Inline "Last updated" + Refresh row ─────────────────────────────────────
-function NewsRefreshRow({
-  lastUpdatedAt,
-  isRefreshing,
-  onRefresh,
-  labelOverride,
-}: {
-  lastUpdatedAt: Date | null;
-  isRefreshing: boolean;
-  onRefresh: () => void;
-  labelOverride?: string;
-}) {
-  const [, forceRender] = useState(0);
-
-  // Tick every minute so the "X minutes ago" label stays live
-  useEffect(() => {
-    const id = setInterval(() => forceRender((n) => n + 1), 60_000);
-    return () => clearInterval(id);
-  }, []);
-
-  if (!lastUpdatedAt && !isRefreshing) return null;
-
-  const label = labelOverride ?? updatedAgoLabel(lastUpdatedAt);
-
-  return (
-    <div className="flex items-center justify-end gap-2 mb-2">
-      {lastUpdatedAt && (
-        <span className="text-[10px]" style={{ color: "#6C6C6C" }}>
-          Updated {label}
-        </span>
-      )}
-      <button
-        type="button"
-        onClick={onRefresh}
-        disabled={isRefreshing}
-        className="flex items-center gap-1 text-[10px] font-semibold transition-opacity active:opacity-60 disabled:opacity-40"
-        style={{ color: "#D4AF37" }}
-        aria-label="Refresh news"
-        data-ocid="news.refresh.button"
-      >
-        <RefreshCw
-          size={10}
-          className={isRefreshing ? "animate-spin" : ""}
-          style={{ color: "#D4AF37" }}
-        />
-        {isRefreshing ? "Refreshing…" : "Refresh"}
-      </button>
-    </div>
-  );
-}
-
-// ─── Sub-components ───────────────────────────────────────────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────
 function SparkLine() {
   return (
     <svg
@@ -222,202 +72,33 @@ function SparkLine() {
   );
 }
 
-function HeadlineSkeletonRow() {
-  return (
-    <div
-      className="px-4 py-3 animate-pulse"
-      style={{ borderBottom: "1px solid #1A1A1A" }}
-    >
-      <div
-        className="h-2.5 rounded mb-1.5"
-        style={{ background: "#1A1A1A", width: "25%" }}
-      />
-      <div
-        className="h-3.5 rounded"
-        style={{ background: "#1A1A1A", width: "90%" }}
-      />
-    </div>
-  );
-}
-
-// ─── Issue 30: Top Headlines extracted into a single shared component ───────────────────────
-// Previously duplicated in both mobile and desktop sections.
-function TopHeadlines({
-  articles,
-  isLoading,
-  onOpen,
-  onExplore,
-  lastUpdatedAt,
-  isRefreshing,
-  onRefresh,
-  variant = "mobile",
-}: {
-  articles: NewsArticle[];
-  isLoading: boolean;
-  onOpen: (article: NewsArticle) => void;
-  onExplore: () => void;
-  lastUpdatedAt: Date | null;
-  isRefreshing: boolean;
-  onRefresh: () => void;
-  variant?: "mobile" | "sidebar";
-}) {
-  const titleSize =
-    variant === "sidebar" ? "text-sm lg:text-base" : "text-base";
-
-  return (
-    <>
-      <div
-        className="flex items-center justify-between"
-        style={{ marginBottom: variant === "sidebar" ? 4 : 8 }}
-      >
-        <h2
-          className={`${titleSize} font-semibold`}
-          style={{ color: "#D4AF37" }}
-        >
-          Top Headlines
-        </h2>
-        <button
-          type="button"
-          onClick={onExplore}
-          className="flex items-center gap-1 text-xs font-semibold transition-opacity active:opacity-60"
-          style={{ color: "#D4AF37" }}
-          data-ocid="headlines.link"
-        >
-          Explore <ArrowRight size={12} />
-        </button>
-      </div>
-
-      {/* Last updated + refresh for headlines block */}
-      <NewsRefreshRow
-        lastUpdatedAt={lastUpdatedAt}
-        isRefreshing={isRefreshing}
-        onRefresh={onRefresh}
-      />
-
-      <div
-        className="rounded-xl overflow-hidden"
-        style={{ border: "1px solid #1A1A1A" }}
-        data-ocid="headlines.list"
-      >
-        {isLoading ? (
-          <>
-            <HeadlineSkeletonRow />
-            <HeadlineSkeletonRow />
-            <HeadlineSkeletonRow />
-          </>
-        ) : articles.length === 0 ? (
-          <div
-            className="px-4 py-6 text-center"
-            style={{ background: "#0F0F0F" }}
-            data-ocid="headlines.empty_state"
-          >
-            <p className="text-xs" style={{ color: "#6C6C6C" }}>
-              No headlines available
-            </p>
-          </div>
-        ) : (
-          articles.map((article, index) => (
-            <button
-              key={`${article.url}-${index}`}
-              type="button"
-              onClick={() => onOpen(article)}
-              className="w-full flex items-center gap-3 px-4 py-3.5 activity-row transition-colors text-left"
-              style={{
-                background: "#0F0F0F",
-                borderBottom:
-                  index < articles.length - 1 ? "1px solid #1A1A1A" : "none",
-              }}
-              data-ocid={`headlines.item.${index + 1}`}
-            >
-              <span
-                className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded-full flex-shrink-0"
-                style={{
-                  background: "#1A1400",
-                  border: "1px solid #2A2000",
-                  color: "#D4AF37",
-                  maxWidth: "64px",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {article.source}
-              </span>
-              <p
-                className="flex-1 text-xs font-medium min-w-0"
-                style={{
-                  color: "#E8E8E8",
-                  overflow: "hidden",
-                  display: "-webkit-box",
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: "vertical" as const,
-                }}
-              >
-                {article.title}
-              </p>
-              <span
-                className="text-[10px] flex-shrink-0"
-                style={{ color: "#6C6C6C" }}
-              >
-                {timeAgo(article.publishedAt)}
-              </span>
-            </button>
-          ))
-        )}
-      </div>
-    </>
-  );
-}
-
-// ─── Props ───────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Props ────────────────────────────────────────────────────────────────────
 interface HomeScreenProps {
   hideBalance?: boolean;
   isLoggedIn?: boolean;
   displayName?: string;
   actor?: WalletActor | null;
   identity?: unknown;
-  /** Currently active tab name — used to detect tab-return for news re-fetch */
   activeTab?: string;
 }
 
-// ─── Main HomeScreen ──────────────────────────────────────────────────────────────────────────────────────
+// ─── Main HomeScreen ──────────────────────────────────────────────────────────
 export function HomeScreen({
   hideBalance = false,
   isLoggedIn = false,
   displayName = "",
   actor: walletActor = null,
   identity,
-  activeTab,
 }: HomeScreenProps) {
-  const { actor, isFetching } = useActor();
-  const [articles, setArticles] = useState<NewsArticle[]>([]);
-  const [isNewsLoading, setIsNewsLoading] = useState(true);
-  const [selectedArticle, setSelectedArticle] = useState<NewsArticle | null>(
-    null,
-  );
-  const [selectedCategory, setSelectedCategory] = useState<string>("Global");
-  const exploreRef = useRef<HTMLElement>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const articlesRef = useRef<NewsArticle[]>([]);
-  articlesRef.current = articles;
-
-  // ─── Fix 2: last successful news fetch timestamp ──────────────────────────
-  const [lastNewsUpdatedAt, setLastNewsUpdatedAt] = useState<Date | null>(null);
-  // Ref version for use inside callbacks without stale closure
-  const lastNewsFetchRef = useRef<number>(0);
-
-  // ─── Wallet balance state ──────────────────────────────────────────────────────────────────────
+  // ─── Wallet balance state ─────────────────────────────────────────────────
   const [walletBalances, setWalletBalances] = useState<
     { currency: string; amount: number }[]
   >([]);
   const [balancesLoading, setBalancesLoading] = useState(false);
-
-  // Recent transactions state
   const [recentTxs, setRecentTxs] = useState<WalletTransaction[]>([]);
   const [txLoading, setTxLoading] = useState(false);
 
-  // Issue 8: wrap wallet Promise.all with an 8-second timeout
-  // biome-ignore lint/correctness/useExhaustiveDependencies: identity used to detect login change
+  // biome-ignore lint/correctness/useExhaustiveDependencies: identity triggers login refresh
   useEffect(() => {
     if (!isLoggedIn || !walletActor) {
       setWalletBalances([]);
@@ -433,8 +114,14 @@ export function HomeScreen({
         .getWalletBalances()
         .catch(() => [] as { currency: string; amount: number }[]),
       walletActor.getWalletTransactions
-        ? (walletActor as any).getWalletTransactions().catch(() => [])
-        : Promise.resolve([]),
+        ? (
+            walletActor as WalletActor & {
+              getWalletTransactions: () => Promise<WalletTransaction[]>;
+            }
+          )
+            .getWalletTransactions()
+            .catch(() => [] as WalletTransaction[])
+        : Promise.resolve([] as WalletTransaction[]),
     ]);
 
     const timeout = new Promise<
@@ -451,8 +138,7 @@ export function HomeScreen({
           setTxLoading(false);
         }
       })
-      .catch((err) => {
-        console.error("Failed to load wallet data:", err);
+      .catch(() => {
         if (!cancelled) {
           setBalancesLoading(false);
           setTxLoading(false);
@@ -463,7 +149,7 @@ export function HomeScreen({
     };
   }, [isLoggedIn, walletActor, identity]);
 
-  // ─── Compute portfolio figures ─────────────────────────────────────────────────────────────────────
+  // ─── Portfolio figures ────────────────────────────────────────────────────
   const totalPortfolioUSD = walletBalances.reduce((sum, b) => {
     return sum + toUSD(b.amount, b.currency);
   }, 0);
@@ -471,98 +157,7 @@ export function HomeScreen({
   const usdBalance =
     walletBalances.find((b) => b.currency === "USD")?.amount ?? 0;
 
-  // Issue 17: isFetchingRef guards against concurrent fetchNews calls
-  const isFetchingNewsRef = useRef(false);
-
-  const fetchNews = useCallback(async () => {
-    if (!actor) return;
-    // Issue 17: deduplicate concurrent calls
-    if (isFetchingNewsRef.current) return;
-    isFetchingNewsRef.current = true;
-    try {
-      const typedActor = actor as unknown as NewsActor;
-      // Issue 7: wrap getNewsData with 8-second timeout
-      const fetchPromise = typedActor.getNewsData();
-      const timeoutPromise = new Promise<never>((_, rej) =>
-        setTimeout(() => rej(new Error("timeout")), 8000),
-      );
-      const data = await Promise.race([fetchPromise, timeoutPromise]);
-      if (data.success && data.articles.length > 0) {
-        setArticles(data.articles);
-      } else if (articlesRef.current.length === 0) {
-        setArticles(MOCK_ARTICLES);
-      }
-      // Fix 2: record timestamp of successful fetch
-      const now = new Date();
-      setLastNewsUpdatedAt(now);
-      lastNewsFetchRef.current = now.getTime();
-    } catch {
-      if (articlesRef.current.length === 0) {
-        setArticles(MOCK_ARTICLES);
-      }
-    } finally {
-      setIsNewsLoading(false);
-      isFetchingNewsRef.current = false;
-    }
-  }, [actor]);
-
-  useEffect(() => {
-    if (actor && !isFetching) {
-      fetchNews();
-    } else if (!actor && !isFetching) {
-      setArticles(MOCK_ARTICLES);
-      setIsNewsLoading(false);
-    }
-  }, [actor, isFetching, fetchNews]);
-
-  useEffect(() => {
-    if (!actor || isFetching) return;
-    intervalRef.current = setInterval(() => {
-      fetchNews();
-    }, 300_000);
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [actor, isFetching, fetchNews]);
-
-  // Fix 1: re-fetch when returning to the Home tab if >60s since last fetch
-  const prevActiveTabRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    const isHomeTab =
-      activeTab === "home" || activeTab === "Home" || activeTab === undefined;
-    const wasOtherTab =
-      prevActiveTabRef.current !== undefined &&
-      prevActiveTabRef.current !== activeTab;
-    prevActiveTabRef.current = activeTab;
-
-    if (!isHomeTab || !wasOtherTab) return;
-    if (!actor || isFetching) return;
-
-    const elapsed = Date.now() - lastNewsFetchRef.current;
-    if (elapsed >= 60_000) {
-      fetchNews();
-    }
-  }, [activeTab, actor, isFetching, fetchNews]);
-
-  const topHeadlines = articles.slice(0, 3);
-
-  function openArticle(article: NewsArticle) {
-    setSelectedArticle(article);
-    setSelectedCategory(getArticleCategory(article));
-  }
-
-  function closeArticle() {
-    setSelectedArticle(null);
-  }
-
-  // ─── Fix 3: manual refresh handler (respects isFetchingNewsRef lock) ────
-  function handleManualRefresh() {
-    fetchNews();
-  }
-
-  const isRefreshingNews = isFetchingNewsRef.current && isNewsLoading === false;
-
-  // ─── Welcome message logic ────────────────────────────────────────────────────────────────────────────────
+  // ─── Welcome heading ──────────────────────────────────────────────────────
   function renderWelcomeHeading() {
     if (isLoggedIn && displayName) {
       return (
@@ -594,18 +189,12 @@ export function HomeScreen({
     );
   }
 
-  // ─── Portfolio card balance area ─────────────────────────────────────────────────────────────────────
+  // ─── Portfolio balance area ────────────────────────────────────────────────
   function renderPortfolioBalance() {
     if (!isLoggedIn) {
       return (
         <div className="py-4 text-center" data-ocid="portfolio.loading_state">
-          <p
-            style={{
-              color: "#3A2A00",
-              fontSize: "14px",
-              fontWeight: 500,
-            }}
-          >
+          <p style={{ color: "#3A2A00", fontSize: "14px", fontWeight: 500 }}>
             Sign in to view your portfolio
           </p>
         </div>
@@ -648,7 +237,7 @@ export function HomeScreen({
     );
   }
 
-  const heroAndFeed = (
+  const mainContent = (
     <>
       {/* Welcome Section */}
       <section
@@ -700,6 +289,14 @@ export function HomeScreen({
             <SparkLine />
           </div>
         )}
+      </section>
+
+      {/* Financial Education + Glossary */}
+      <section
+        className="mb-6 animate-fade-in"
+        style={{ animationDelay: "120ms" }}
+      >
+        <LearnSection />
       </section>
 
       {/* Recent Activity */}
@@ -797,7 +394,6 @@ export function HomeScreen({
                       <ArrowDownRight size={14} style={{ color: "#9A9A9A" }} />
                     )}
                   </div>
-
                   <div className="flex-1 min-w-0">
                     <p
                       className="text-sm font-medium truncate"
@@ -809,7 +405,6 @@ export function HomeScreen({
                       {tx.txType}
                     </p>
                   </div>
-
                   <span
                     className="text-sm font-semibold flex-shrink-0"
                     style={{ color: isReceive ? "#D4AF37" : "#9A9A9A" }}
@@ -850,93 +445,18 @@ export function HomeScreen({
         </div>
       </section>
 
-      {/* Explore / News Section */}
-      <NewsSection
-        ref={exploreRef}
-        articles={articles}
-        isLoading={isNewsLoading}
-        lastUpdatedAt={lastNewsUpdatedAt}
-        isRefreshing={isRefreshingNews}
-        onRefresh={handleManualRefresh}
-      />
-
       <div style={{ height: "16px" }} />
-    </>
-  );
-
-  // Issue 30: sidebarContent uses shared <TopHeadlines> component
-  const sidebarContent = (
-    <>
-      <div
-        className="rounded-xl overflow-hidden mb-6 animate-fade-in"
-        style={{ border: "1px solid #1A1A1A", animationDelay: "120ms" }}
-        data-ocid="headlines.section"
-      >
-        <div
-          className="px-4 py-3"
-          style={{ borderBottom: "1px solid #1A1A1A" }}
-        >
-          <TopHeadlines
-            articles={topHeadlines}
-            isLoading={isNewsLoading}
-            onOpen={openArticle}
-            onExplore={() =>
-              exploreRef.current?.scrollIntoView({ behavior: "smooth" })
-            }
-            lastUpdatedAt={lastNewsUpdatedAt}
-            isRefreshing={isRefreshingNews}
-            onRefresh={handleManualRefresh}
-            variant="sidebar"
-          />
-        </div>
-      </div>
     </>
   );
 
   return (
     <main className="flex-1 min-h-0 flex flex-col px-5 pt-4 pb-4 overflow-y-auto lg:overflow-visible lg:flex-none lg:block">
-      {/* Mobile: single column */}
-      <div className="lg:hidden">
-        {/* Issue 30: use shared TopHeadlines component */}
-        <section
-          className="mb-6 animate-fade-in"
-          style={{ animationDelay: "120ms" }}
-          data-ocid="headlines.section"
-        >
-          <TopHeadlines
-            articles={topHeadlines}
-            isLoading={isNewsLoading}
-            onOpen={openArticle}
-            onExplore={() =>
-              exploreRef.current?.scrollIntoView({ behavior: "smooth" })
-            }
-            lastUpdatedAt={lastNewsUpdatedAt}
-            isRefreshing={isRefreshingNews}
-            onRefresh={handleManualRefresh}
-            variant="mobile"
-          />
-        </section>
-
-        {heroAndFeed}
+      {/* Mobile + Desktop: single column layout */}
+      <div className="lg:grid lg:grid-cols-[1fr_360px] lg:gap-8 lg:items-start">
+        <div>{mainContent}</div>
+        {/* Desktop right column placeholder for balance */}
+        <div className="hidden lg:block lg:sticky" style={{ top: 16 }} />
       </div>
-
-      {/* Desktop: two-column grid */}
-      <div className="hidden lg:grid lg:grid-cols-[1fr_360px] lg:gap-8 lg:items-start">
-        {/* Left column: hero + activity + insights + news feed */}
-        <div>{heroAndFeed}</div>
-
-        {/* Right column: headlines + placeholder for market data */}
-        <div className="lg:sticky" style={{ top: 16 }}>
-          {sidebarContent}
-        </div>
-      </div>
-
-      {/* Article Preview Modal */}
-      <ArticlePreviewModal
-        article={selectedArticle}
-        category={selectedCategory}
-        onClose={closeArticle}
-      />
     </main>
   );
 }

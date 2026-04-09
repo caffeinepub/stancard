@@ -322,6 +322,12 @@ function InteractiveChart({
 
 // ─── ExpandedChartModal ───────────────────────────────────────────────────────────
 
+export interface SetAlertPayload {
+  symbol: string;
+  assetType: "stock" | "forex" | "crypto";
+  currentPrice: string;
+}
+
 export interface ExpandedChartModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -331,8 +337,7 @@ export interface ExpandedChartModalProps {
   changePercent: number;
   sparkData: number[];
   priceUnit?: string;
-  // ISSUE 14: navigate to alerts tab
-  onSetAlert?: () => void;
+  onSetAlert?: (payload: SetAlertPayload) => void;
 }
 
 function OverlayBackdrop({ onClose }: { onClose: () => void }) {
@@ -389,6 +394,14 @@ export function ExpandedChartModal({
   const isPositive = changePercent >= 0;
   const high7d = sparkData.length > 0 ? Math.max(...sparkData) : 0;
   const low7d = sparkData.length > 0 ? Math.min(...sparkData) : 0;
+
+  // Determine asset type from context (priceUnit = forex, check known crypto symbols)
+  const CRYPTO_SYMS = ["BTC", "ETH", "BNB"];
+  const assetType: "stock" | "forex" | "crypto" = priceUnit
+    ? "forex"
+    : CRYPTO_SYMS.includes(symbol)
+      ? "crypto"
+      : "stock";
 
   const formatStat = (v: number): string => {
     if (priceUnit) {
@@ -757,13 +770,13 @@ export function ExpandedChartModal({
           </div>
         )}
 
-        {/* ISSUE 14: Set Alert button */}
+        {/* Set Alert button — wired with asset data */}
         {onSetAlert && (
           <div style={{ marginTop: 18, textAlign: "right" }}>
             <button
               type="button"
               onClick={() => {
-                onSetAlert();
+                onSetAlert({ symbol, assetType, currentPrice });
                 onClose();
               }}
               style={{

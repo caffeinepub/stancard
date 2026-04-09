@@ -281,6 +281,7 @@ service : {
   getAcceptedDeliveriesWithTracking: () ->
    (vec AcceptedDeliveryWithTracking) query;
   getAdminList: () -> (vec principal) query;
+  getAdminStatus: () -> (bool) query;
   getAlerts: () -> (vec Alert);
   getAllRiderVerifications: () -> (vec RiderVerificationWithStatus) query;
   getAllRoutes: () -> (vec RiderRoute) query;
@@ -292,6 +293,8 @@ service : {
   getMatchedRiders: (destinationCity: text, destinationCountry: text) ->
    (vec RiderRoute) query;
   getNewsData: () -> (NewsData);
+  /// Retrieve the caller's stored push notification subscription JSON, if any.
+  getNotificationSubscription: () -> (opt text) query;
   getRiderRoutes: () -> (vec RiderRoute) query;
   getRiderVerification: () -> (opt RiderVerification) query;
   getSavingsGoals: () -> (vec SavingsGoal) query;
@@ -326,6 +329,9 @@ service : {
    (AdminResult);
   removeAdmin: (adminToRemove: principal) -> (AdminResult);
   respondToRequest: (requestId: text, accept: bool) -> (MoveResult);
+  /// Store the caller's Web Push subscription JSON (VAPID) so the service
+  /// worker can retrieve it and send notifications for triggered alerts.
+  saveNotificationSubscription: (subscription: text) -> ();
   saveUserProfile: (displayName: text, preferredCurrency: text, language:
    text, hideBalance: bool, hideTransactions: bool) -> (UserProfile);
   sendDeliveryRequest: (packageId: text, routeId: text, riderPrincipalText:
